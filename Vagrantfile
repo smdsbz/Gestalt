@@ -4,19 +4,19 @@
 Vagrant.configure("2") do |config|
   config.vm.box = "bento/ubuntu-21.04"
 
-  config.vm.provider "virtualbox" do |vb|
+  config.vm.synced_folder ".", "/home/vagrant/gestalt"
+
+  config.vm.provider :virtualbox do |vb|
     vb.cpus = 2
     vb.memory = 2048
   end
 
   # Configure RDMA (Soft-RoCE)
-  config.vm.provision "shell", inline: <<~SHELL
+  config.vm.provision :shell, inline: <<~SHELL
     # Install RDMA packages
     apt update
     apt install -y ibverbs-utils rdma-core rdmacm-utils
-    ## Install develop headers
-    #apt install -y libibverbs-dev librdmacm-dev
-    # Setup Soft-RoCE on startup
+    # Configure Soft-RoCE startup
     cat << EOF > /etc/systemd/system/soft-roce-startup.service
     [Unit]
     Description=Configure Soft RoCE on boot
@@ -43,7 +43,7 @@ Vagrant.configure("2") do |config|
   # Configure PMem (memmap)
   # NOTE: you will need to manually reboot the vm after first created,
   # the `reboot` keyword just don't work well
-  config.vm.provision "shell", inline: <<~SHELL
+  config.vm.provision :shell, inline: <<~SHELL
     # Install PMem software
     apt install -y ndctl ipmctl
     # Create emulated PMem
@@ -52,7 +52,8 @@ Vagrant.configure("2") do |config|
     echo "Manually reboot vm to apply memmap changes!"
   SHELL
 
-  config.vm.define "test" do |test|
+  config.vm.define "gestalt-playground" do |test|
+    test.vm.network :forwarded_port, guest: 22, host: 53276
   end
 end
 
