@@ -218,12 +218,21 @@ BOOST_AUTO_TEST_CASE(rdma_hello_world_threaded) {
             while (!ibv_poll_cq(connected_client_id->send_cq, 1, &wc)) poll_spins++;
             cout << "server poll spinned for " << poll_spins << " times before non-empty" << endl;
             BOOST_CHECK_EQUAL(wc.status, IBV_WC_SUCCESS);
+            BOOST_CHECK_EQUAL(wc.opcode, IBV_WC_SEND);
             cout << "server polled send " << wc.opcode << endl;
             cout << endl;
         }
 
-        /* 3. handle READ */
-        /* i.e. do nothing, since it's RDMA-ed */
+        /** 3. handle READ
+         *
+         * I.e. do nothing, since it's RDMA-ed.
+         *
+         * However, we still need RDMA-enabled memory (and PD and QP etc) to be
+         * available, otherwise client will fail to read anything (and get blocked
+         * forever). The easiest way to fix this is to preserve this threaded task's
+         * context mildly longer, postponing `defer`-ed destoryers.
+         */
+        std::this_thread::sleep_for(.3s);
     });
 
     thread __client_thread([&] {
@@ -273,12 +282,12 @@ BOOST_AUTO_TEST_CASE(rdma_hello_world_threaded) {
         ibv_qp_attr queried_qp_attr;
         ibv_qp_init_attr queried_init_attr;
         BOOST_REQUIRE(!ibv_query_qp(client_id->qp, &queried_qp_attr, 0, &queried_init_attr));
-        DVAR(queried_init_attr.qp_type);
-        std::printf("queried_qp_attr.timeout=%u\n", queried_qp_attr.timeout);
-        std::printf("queried_qp_attr.retry_cnt=%u\n", queried_qp_attr.retry_cnt);
-        std::printf("queried_qp_attr.min_rnr_timer=%u\n", queried_qp_attr.min_rnr_timer);
-        std::printf("queried_qp_attr.rnr_retry=%u\n", queried_qp_attr.rnr_retry);
-        cout << endl;
+        // DVAR(queried_init_attr.qp_type);
+        // std::printf("queried_qp_attr.timeout=%u\n", queried_qp_attr.timeout);
+        // std::printf("queried_qp_attr.retry_cnt=%u\n", queried_qp_attr.retry_cnt);
+        // std::printf("queried_qp_attr.min_rnr_timer=%u\n", queried_qp_attr.min_rnr_timer);
+        // std::printf("queried_qp_attr.rnr_retry=%u\n", queried_qp_attr.rnr_retry);
+        // cout << endl;
 
         /* 2. recv */
         {
@@ -293,9 +302,10 @@ BOOST_AUTO_TEST_CASE(rdma_hello_world_threaded) {
             BOOST_REQUIRE(!ibv_post_recv(client_id->qp, &wr, &bad_rwr));
             ibv_wc wc;
             ssize_t poll_spins = 0;
-            while (!ibv_poll_cq(client_id->/*qp->*/recv_cq, 1, &wc)) poll_spins++;
+            while (!ibv_poll_cq(client_id->recv_cq, 1, &wc)) poll_spins++;
             cout << "client poll spinned for " << poll_spins << " times before non-empty" << endl;
             BOOST_CHECK_EQUAL(wc.status, IBV_WC_SUCCESS);
+            BOOST_CHECK_EQUAL(wc.opcode, IBV_WC_RECV);
             cout << "client polled recv " << wc.opcode << "\n"
                 << "byte_len " << wc.byte_len << endl;
             std::printf("server_mem.get(): %s\nmsg_mem.get(): %s\n",
@@ -330,8 +340,8 @@ BOOST_AUTO_TEST_CASE(rdma_hello_world_threaded) {
             ssize_t poll_spins = 0;
             while (!ibv_poll_cq(client_id->send_cq, 1, &wc)) poll_spins++;
             BOOST_CHECK_EQUAL(wc.status, IBV_WC_SUCCESS);
-            cout << "client poll spinned for " << poll_spins << " times before non-empty" << endl;
             BOOST_CHECK_EQUAL(wc.opcode, IBV_WC_RDMA_READ);
+            cout << "client poll spinned for " << poll_spins << " times before non-empty" << endl;
             cout << "client polled read " << (int)wc.opcode << " " << wc.vendor_err
                 << endl;
             cout << endl;
