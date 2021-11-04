@@ -9,7 +9,7 @@ template<typename T> using deleted_unique_ptr = std::unique_ptr<T, std::function
 #define __defer_impl(ptr, dfn, l)                               \
     std::unique_ptr<std::remove_pointer<decltype(ptr)>::type,   \
                     std::function<void(decltype(ptr))>>         \
-    CONCAT(__dtor, l) (ptr, [](decltype(ptr) p) { dfn(p); })
+    CONCAT(__dtor, l) (ptr, [&](decltype(ptr) p) { dfn(p); })
 #define defer(ptr, dfn) __defer_impl(ptr, dfn, __LINE__)
 #include <cerrno>
 #include <future>
@@ -26,7 +26,7 @@ using namespace std::chrono_literals;
 #include "playground/playground.h"
 
 #define DVAR(V) do {                        \
-    std::cout << /*"(" << typeid(V).name() << ")" <<*/ #V "=" << V << std::endl;  \
+    std::cout << #V "=" << V << std::endl;  \
 } while(0)
 
 
@@ -135,8 +135,9 @@ BOOST_AUTO_TEST_CASE(ibv_hello_world) {
 /**
  * Steps:
  * 1. Establish connection
- * 2. Client recv (librdmacm)
- * 3. Client read (librdmacm)
+ * 2. Server SEND
+ * 3. Client READ
+ * 4. Client WRITE
  */
 BOOST_AUTO_TEST_CASE(rdma_hello_world_threaded) {
     cout << "==== Entering rdma_hello_world_threaded ====" << endl;
@@ -144,6 +145,8 @@ BOOST_AUTO_TEST_CASE(rdma_hello_world_threaded) {
     auto server_mem = std::make_unique<uint8_t[]>(MEM_SIZE);
     std::memcpy(server_mem.get(), "1145141919810", sizeof("1145141919810")-1);
     ibv_mr *server_msg_mr;
+
+    bool is_client_done = false;
 
     thread __server_thread([&] {
         /* create server stub */
@@ -163,11 +166,6 @@ BOOST_AUTO_TEST_CASE(rdma_hello_world_threaded) {
         };
         BOOST_REQUIRE(!rdma_create_ep(&server_id, addrinfo, NULL, &init_attr));
         defer(server_id, rdma_destroy_ep);
-        // cout << "Server (listener) state before connect" << endl;
-        // DVAR(server_id->verbs);
-        // DVAR(server_id->send_cq); DVAR(server_id->recv_cq); DVAR(server_id->srq);
-        // DVAR(server_id->qp); DVAR(server_id->qp_type);
-        // cout << endl;
 
         /* start server */
         BOOST_REQUIRE(!rdma_listen(server_id, 0));
@@ -178,11 +176,6 @@ BOOST_AUTO_TEST_CASE(rdma_hello_world_threaded) {
         /* accept incoming connection */
         BOOST_REQUIRE(!rdma_accept(connected_client_id, NULL));
         defer(connected_client_id, rdma_disconnect);
-        // cout << "Server (listener) state after connect" << endl;
-        // DVAR(server_id->verbs);
-        // DVAR(server_id->send_cq); DVAR(server_id->recv_cq); DVAR(server_id->srq);
-        // DVAR(server_id->qp); DVAR(server_id->qp_type);
-        // DVAR(server_id->pd); DVAR(server_id->pd->handle);
         cout << "Server (agent) state after connect" << endl;
         DVAR(connected_client_id->verbs);
         DVAR(connected_client_id->send_cq); DVAR(connected_client_id->recv_cq); DVAR(connected_client_id->srq);
@@ -224,15 +217,16 @@ BOOST_AUTO_TEST_CASE(rdma_hello_world_threaded) {
         }
 
         /** 3. handle READ
+         * 4. handle WRITE
          *
          * I.e. do nothing, since it's RDMA-ed.
          *
          * However, we still need RDMA-enabled memory (and PD and QP etc) to be
          * available, otherwise client will fail to read anything (and get blocked
-         * forever). The easiest way to fix this is to preserve this threaded task's
-         * context mildly longer, postponing `defer`-ed destoryers.
+         * forever).
          */
-        std::this_thread::sleep_for(.3s);
+
+        while (!is_client_done) std::this_thread::sleep_for(.1s);
     });
 
     thread __client_thread([&] {
@@ -282,12 +276,6 @@ BOOST_AUTO_TEST_CASE(rdma_hello_world_threaded) {
         ibv_qp_attr queried_qp_attr;
         ibv_qp_init_attr queried_init_attr;
         BOOST_REQUIRE(!ibv_query_qp(client_id->qp, &queried_qp_attr, 0, &queried_init_attr));
-        // DVAR(queried_init_attr.qp_type);
-        // std::printf("queried_qp_attr.timeout=%u\n", queried_qp_attr.timeout);
-        // std::printf("queried_qp_attr.retry_cnt=%u\n", queried_qp_attr.retry_cnt);
-        // std::printf("queried_qp_attr.min_rnr_timer=%u\n", queried_qp_attr.min_rnr_timer);
-        // std::printf("queried_qp_attr.rnr_retry=%u\n", queried_qp_attr.rnr_retry);
-        // cout << endl;
 
         /* 2. recv */
         {
@@ -314,19 +302,14 @@ BOOST_AUTO_TEST_CASE(rdma_hello_world_threaded) {
             cout << endl;
         }
 
-        /* 3. TODO: try RDMA read */
-        /** FIXME: sometimes read successfully polled, but it has to be in order
-         *      1. client polled recv
-         *      2. client polled read
-         *      3. server polled send
-         *      stucks if server polled send before client read
-         */
+        /* 3. try RDMA read */
         {
             cout << "Client RDMA READ" << endl;
             std::memset(msg_mem.get(), 0, MEM_SIZE);
             BOOST_REQUIRE_EQUAL(string(""), string(reinterpret_cast<char*>(msg_mem.get())));
             ibv_sge sgl[] = {
-                {.addr = (uintptr_t)msg_mem.get(), .length = 14, .lkey = msg_mr->lkey},
+                {.addr = (uintptr_t)msg_mem.get(), .length = sizeof("1145141919810"),
+                 .lkey = msg_mr->lkey},
             };
             ibv_send_wr wr{
                 .next = NULL,
@@ -347,8 +330,34 @@ BOOST_AUTO_TEST_CASE(rdma_hello_world_threaded) {
             cout << endl;
             BOOST_CHECK_EQUAL(string("1145141919810"), string(reinterpret_cast<char*>(msg_mem.get())));
         }
+
+        /* 4. try RDAM write */
+        {
+            cout << "Client RDMA WRITE" << endl;
+            std::memcpy(msg_mem.get(), "sometext", sizeof("sometext"));
+            ibv_sge sgl[] = {
+                {.addr = (uintptr_t)msg_mem.get(), .length = sizeof("sometext"),
+                 .lkey = msg_mr->lkey},
+            };
+            ibv_send_wr wr{
+                .next = NULL,
+                .sg_list = sgl, .num_sge = 1,
+                .opcode = IBV_WR_RDMA_WRITE,
+                .wr={.rdma={ .remote_addr = (uintptr_t)server_msg_mr->addr,
+                             .rkey = server_msg_mr->rkey }},
+            }, *bad_wr;
+            BOOST_REQUIRE(!ibv_post_send(client_id->qp, &wr, &bad_wr));
+            ibv_wc wc;
+            while (!ibv_poll_cq(client_id->send_cq, 1, &wc)) ;
+            BOOST_CHECK_EQUAL(wc.status, IBV_WC_SUCCESS);
+            BOOST_CHECK_EQUAL(wc.opcode, IBV_WC_RDMA_WRITE);
+            BOOST_CHECK_EQUAL(string("sometext"), string(reinterpret_cast<char*>(server_mem.get())));
+            cout << endl;
+        }
+
+        is_client_done = true;
     });
 
-    __server_thread.join();
     __client_thread.join();
+    __server_thread.join();
 }

@@ -1,4 +1,4 @@
 #pragma once
 
 const char *PLAYGROUND_RNIC_IP = "${playground_rnic_ip}";
-const char *PLAYGROUND_RNIC_PORT = "11451";
+const char *PLAYGROUND_RNIC_PORT = "${playground_rnic_port}";
