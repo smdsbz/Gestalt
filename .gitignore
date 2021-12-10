@@ -36,3 +36,4 @@
 *.swp
 
 build/
+3rd_party/ycsb/ycsb-*

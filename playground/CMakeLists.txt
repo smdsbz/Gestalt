@@ -8,5 +8,5 @@ configure_file(include/playground/playground.h.in ${PROJECT_BINARY_DIR}/playgrou
 find_package(Boost REQUIRED)
 add_compile_definitions(BOOST_TEST_DYN_LINK)
 
-add_subdirectory(rdma-hello-world EXCLUDE_FROM_ALL)
-add_subdirectory(librdmacm-examples EXCLUDE_FROM_ALL)
+add_subdirectory(rdma-hello-world)
+add_subdirectory(librdmacm-examples)

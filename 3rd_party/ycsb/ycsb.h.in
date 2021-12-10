@@ -1,0 +1,10 @@
+#pragma once
+
+/**
+ * Path to YCSB executable
+ */
+const char *YCSB_BIN = "${ycsb_release_SOURCE_DIR}/bin/ycsb.sh";
+/**
+ * Path to basic YCSB workload spec files' directory
+ */
+const char *YCSB_WORKLOAD_DIR = "${ycsb_release_SOURCE_DIR}/workloads/";
