@@ -20,7 +20,7 @@ using namespace std;
 
 /**
  * name - value, value can be `unsigned` or string
- * @see https://github.com/brianfrankcooper/YCSB/wiki/Core-Properties
+ * @sa https://github.com/brianfrankcooper/YCSB/wiki/Core-Properties
  */
 using ycsb_args = unordered_map<string, string>;
 using filesystem::path;
