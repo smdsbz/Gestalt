@@ -5,6 +5,7 @@
 #include <iostream>
 #include <vector>
 #include <cstring>
+#include <isa-l/crc.h>
 #include <filesystem>
 #include <cassert>
 #include <boost/log/trivial.hpp>
@@ -48,6 +49,8 @@ struct __attribute__ ((packed)) entry {
         }
         static inline uint32_t hash(const std::string &k) noexcept
         {
+            return crc32_iscsi((unsigned char*)k.c_str(), k.length(), 0x11451419);
+            return crc32_ieee(0x11451419, (unsigned char*)k.c_str(), k.length());
             return std::hash<std::string>{}(k) & 0xffffffff;
         };
         inline uint32_t hash() const noexcept

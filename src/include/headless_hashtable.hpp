@@ -93,7 +93,7 @@ public:
      *  @param d Data storage buffer
      *  @param capacity Length of buffer `d` in object count
      *  @param max_search_length Maximum linear search length, w/o the original
-     *      one
+     *      one, defaults to 5
      *  @throw std:invalid_argument
      */
     HeadlessHashTable(entry_type *d, size_t capacity, size_t max_search_length = 5)

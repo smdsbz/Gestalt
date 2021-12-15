@@ -12,4 +12,4 @@ target_include_directories(hash-fill-factor
         ${CMAKE_SOURCE_DIR}/src/include)
 target_link_libraries(hash-fill-factor
     PRIVATE
-        ycsb_parser ycsb)
+        ycsb_parser ycsb isal)
