@@ -5,16 +5,16 @@
 
 #pragma once
 
+#include <memory>
 #include <functional>
 
 #define GESTALT_CONCAT(a, b) a ## b
-#define __gestalt_defer_impl(ptr, dfn, l)                       \
-    std::unique_ptr<std::remove_pointer<decltype(ptr)>::type,   \
-                    std::function<void(decltype(ptr))>>         \
-    GESTALT_CONCAT(__dtor, l) (ptr, [&](decltype(ptr) p) { dfn(p); })
+#define __gestalt_defer_impl(dfn, l)                            \
+    std::unique_ptr<void, std::function<void(void*)>>           \
+    GESTALT_CONCAT(__dtor, l) ((void*)1, [&](void*) { dfn(); })
 /**
  * Golang-style defer
- * @param ptr resource handle as pointer
- * @param dfn destructor of type `std::function<void(decltype(ptr))>`
+ * @param dfn destructor function, it takes no argument, and return value is
+ *      ignored
  */
-#define defer(ptr, dfn) __gestalt_defer_impl(ptr, dfn, __LINE__)
+#define defer(dfn) __gestalt_defer_impl(dfn, __LINE__)

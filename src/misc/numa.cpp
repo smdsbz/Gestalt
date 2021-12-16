@@ -47,7 +47,7 @@ ibv_device *choose_rnic_on_same_numa(
         ndctl_ctx *ndctx;
         if (ndctl_new(&ndctx))
             throw std::runtime_error("ndctl_new");
-        defer(ndctx, ndctl_unref);
+        defer([&]{ ndctl_unref(ndctx); });
 
         ndctl_bus *bus;
         ndctl_region *reg;
@@ -86,6 +86,7 @@ ibv_device *choose_rnic_on_same_numa(
         std::system((string("echo -n '{\"data\":' > ") + out.string()).c_str());
         std::system((string("ndctl list -v >> ") + out.string()).c_str());
         std::system((string("echo -n '}' >> ") + out.string()).c_str());
+        defer([&]{ filesystem::remove(out); });
 
         ifstream ndctl_dump(out);
         pt::ptree tree;

@@ -32,17 +32,16 @@ BOOST_AUTO_TEST_CASE(test_choose_rnic_on_same_numa) {
         ofstream f(TEST_FILE, std::ios::binary);
         f.seekp(TEST_FILE_SIZE);
     }
+    defer([&]{ filesystem::remove(TEST_FILE); });
 
     int num_devices;
     auto devices = rdma_get_devices(&num_devices);
     BOOST_REQUIRE(devices);
-    defer(devices, rdma_free_devices);
+    defer([&]{ rdma_free_devices(devices); });
     auto choice = choose_rnic_on_same_numa(PMEM_DEV, devices, num_devices);
     BOOST_TEST_REQUIRE(choice,
         "failed to choose RNIC for PMem device " << PMEM_DEV
         << ", this might be expected due to lack of actual RNIC hardware.");
     BOOST_LOG_TRIVIAL(info) << "test_choose_rnic_on_same_numa: "
         << "chose " << choice->name << " for device " << PMEM_DEV;
-
-    filesystem::remove(TEST_FILE);
 }
