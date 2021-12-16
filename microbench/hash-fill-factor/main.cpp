@@ -111,11 +111,11 @@ int main(const int argc, const char **argv)
         /* optional since space is default constructed thus naturally invalid */
         // hht.clear();
 
-        hht["114"] = {"114", entry::value_type()};
+        hht["114"] = {"114", {}};
         assert(hht.contains("114"));
 
         assert(!hht.contains("1919"));
-        hht.insert({"1919", entry::value_type()});
+        hht.insert({"1919", {}});
         assert(hht.contains("1919"));
 
         bool found_114 = false, found_1919 = false;
@@ -161,7 +161,7 @@ int main(const int argc, const char **argv)
         size_t total_inserted = 0;
         for (const auto &t : trace) {
             try {
-                hht.insert({t.okey, entry::value_type()});
+                hht.insert({t.okey, {}});
                 ++total_inserted;
             } catch (const std::bad_alloc &exc) {
                 BOOST_LOG_TRIVIAL(warning) << "insert failed for key " << t.okey;
