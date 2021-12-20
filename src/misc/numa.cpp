@@ -5,7 +5,7 @@
 #include <cstring>
 #include <filesystem>
 #include <stdexcept>
-#ifdef GET_NUMA_WITH_NDCTL
+#ifdef GET_NUMA_WITH_LIBNDCTL
 #include <ndctl/libndctl.h>
 #endif
 #include <boost/property_tree/json_parser.hpp>
@@ -38,7 +38,7 @@ ibv_device *choose_rnic_on_same_numa(
 ) {
     int numa = -1;
 
-#ifdef GET_NUMA_WITH_NDCTL
+#ifdef GET_NUMA_WITH_LIBNDCTL
     /* native programatic approach with `libndctl`
        iterate through all bus -> region -> namespace and find out our PMem
        dev's NUMA  */

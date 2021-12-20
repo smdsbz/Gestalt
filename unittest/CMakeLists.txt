@@ -5,8 +5,9 @@ include_directories(src/include)
 
 enable_testing()
 
-# Misc - NUMA
-add_executable(numa numa.cpp)
-target_link_libraries(numa
+# Misc
+add_executable(test_misc misc.cpp)
+target_link_libraries(test_misc
     PRIVATE
-        gestalt::misc::numa pmem)
+        gestalt::misc::numa pmem
+        gestalt::misc::ddio)

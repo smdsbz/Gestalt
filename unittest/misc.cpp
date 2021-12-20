@@ -6,9 +6,11 @@
 #define BOOST_TEST_MODULE gestalt misc numa
 #include <boost/test/unit_test.hpp>
 #include <boost/log/trivial.hpp>
+#include <cstdlib>
 #include <fstream>
 #include <filesystem>
 #include "misc/numa.hpp"
+#include "misc/ddio.hpp"
 #include "common/size_literals.hpp"
 #include "common/defer.hpp"
 
@@ -44,4 +46,33 @@ BOOST_AUTO_TEST_CASE(test_choose_rnic_on_same_numa) {
         << ", this might be expected due to lack of actual RNIC hardware.");
     BOOST_LOG_TRIVIAL(info) << "test_choose_rnic_on_same_numa: "
         << "chose " << choice->name << " for device " << PMEM_DEV;
+}
+
+
+BOOST_AUTO_TEST_CASE(test_ddio_guard) {
+    using namespace gestalt::misc;
+    const char *TMPFILE = "/tmp/gestalt/setpci.out";
+    const char *RNIC = "mlx5_0";
+    const char *PCI_ROOT = "0000:ae:00.0";
+
+    {
+        auto guard(ddio::scope_guard::from_rnic(RNIC));
+        {
+            std::system((string("setpci -s ") + PCI_ROOT + " 180.b > " + TMPFILE).c_str());
+            ifstream f(TMPFILE);
+            int r; f >> std::hex >> r;
+            BOOST_TEST_REQUIRE(r == 0x11, "it could be the code not working, or"
+                << " misconfigured hardware");
+            filesystem::remove(TMPFILE);
+        }
+    }
+
+    {
+        std::system((string("setpci -s ") + PCI_ROOT + " 180.b > " + TMPFILE).c_str());
+        ifstream f(TMPFILE);
+        int r; f >> std::hex >> r;
+        BOOST_TEST_REQUIRE(r == 0x91, "it could be the code not working, or"
+            << " misconfigured hardware");
+        filesystem::remove(TMPFILE);
+    }
 }
