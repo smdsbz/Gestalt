@@ -1,4 +1,4 @@
-project(rdma-hello-world)
+project(playground_rdma-hello-world)
 
 add_executable(${PROJECT_NAME} main.cpp)
 

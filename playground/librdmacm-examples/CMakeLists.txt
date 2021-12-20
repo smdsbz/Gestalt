@@ -1,9 +1,9 @@
-project(librdmacm-examples)
+project(playground_librdmacm-examples)
 
-add_executable(rdma-server rdma_server.c)
-target_link_libraries(rdma-server
+add_executable(${PROJECT_NAME}-server rdma_server.c)
+target_link_libraries(${PROJECT_NAME}-server
     ibverbs rdmacm)
 
-add_executable(rdma-client rdma_client.c)
-target_link_libraries(rdma-client
+add_executable(${PROJECT_NAME}-client rdma_client.c)
+target_link_libraries(${PROJECT_NAME}-client
     ibverbs rdmacm)
