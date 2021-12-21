@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <libpmem.h>
 #include <rdma/rdma_cma.h>
+#include <arpa/inet.h>
 #include "misc/numa.hpp"
 #include "misc/ddio.hpp"
 #include "common/defer.hpp"
@@ -41,17 +42,90 @@ int main(const int argc, const char **argv)
         &pmem_buffer_size, &is_pmem
     );
     if (!pmem_buffer)
-        throw std::runtime_error(string("pmem_map_file: ") + std::strerror(errno));
+        throw std::runtime_error(string("pmem_map_file(): ") + std::strerror(errno));
     defer([&] { pmem_unmap(pmem_buffer, pmem_buffer_size); });
+    if (!is_pmem)
+        throw std::runtime_error("not a PMem DAX file");
+    if ((uintptr_t)pmem_buffer % 4_K)
+        throw std::runtime_error("mapped PMem not aligned");
     std::cout << "size of mapped PMem file is " << to_human_readable(pmem_buffer_size) << std::endl;
 
+    /* init RNIC */
+    int num_rnic_devices;
+    auto rnic_devices = rdma_get_devices(&num_rnic_devices);
+    defer([&] { rdma_free_devices(rnic_devices); });
+    if (!num_rnic_devices)
+        throw std::runtime_error("get an RNIC first, dude");
+    auto rnic_chosen = gestalt::misc::numa::choose_rnic_on_same_numa(
+        /*TODO: detect by file*/"pmem1",
+        rnic_devices, num_rnic_devices);
+    if (!rnic_chosen) {
+        std::cerr << "cannot find a matching RNIC on the same NUMA, "
+            << "default to the first RNIC listed!" << std::endl;
+        rnic_chosen = rnic_devices[0]->device;
+    }
+    std::cout << "RNIC chosen is " << rnic_chosen->name << std::endl;
+    /* RNIC DDIO configure */
+    auto ddio_guard(gestalt::misc::ddio::scope_guard::from_rnic(rnic_chosen->name));
 
+    /* register PMem to RNIC to be RW-ready */
 
-    /* TODO: init RNIC */
+    /* start RDMACM service */
+    rdma_addrinfo *server_addrinfo,
+        server_addrhint{
+            .ai_flags = RAI_PASSIVE, .ai_port_space = RDMA_PS_TCP
+        };
+    if (rdma_getaddrinfo(/*TODO: get from rnic*/"192.168.2.246", "9810",
+            &server_addrhint, &server_addrinfo))
+        throw std::runtime_error(string("rdma_getaddrinfo(): ") + std::strerror(errno));
+    defer([&] { rdma_freeaddrinfo(server_addrinfo); });
+    rdma_cm_id *server_id;
+    ibv_qp_init_attr init_attr{
+        .cap = { .max_send_wr = 16, .max_recv_wr = 16,
+                    .max_send_sge = 16, .max_recv_sge = 16,
+                    .max_inline_data = 512 },
+        .qp_type = IBV_QPT_RC,
+        .sq_sig_all = 0
+    };
+    if (rdma_create_ep(&server_id, server_addrinfo, /*qp*/NULL, &init_attr))
+        throw std::runtime_error(string("rdma_create_ep(): ") + std::strerror(errno));
+    defer([&] { rdma_destroy_ep(server_id); });
+    if (rdma_listen(server_id, 0))
+        throw std::runtime_error(string("rdma_listen(): ") + std::strerror(errno));
 
-    /* TODO: register PMem to RNIC to be RW-ready */
+    /* listen for incomming connections */
+    rdma_cm_id *connected_id;
+    if (rdma_get_request(server_id, &connected_id))
+        throw std::runtime_error(string("rdma_get_reqeust(): ") + std::strerror(errno));
+    defer([&] { rdma_destroy_ep(connected_id); });
+    if (rdma_accept(connected_id, NULL))
+        throw std::runtime_error(string("rdma_accept(): ") + std::strerror(errno));
+    defer([&] { rdma_disconnect(connected_id); });
+    std::cout << "accepted connection from "
+        /* NOTE: and yes, `dst_sin` is the received address, the other end,
+            whilst `src_sin` is ours */
+        << inet_ntoa(connected_id->route.addr.dst_sin.sin_addr)
+        << std::endl;;
+    /* register PMem */
+    ibv_mr *mr;
+    auto dummy = std::make_unique<uint8_t[]>(1024);
+    /* DEBUG: ibv failed to register PMem.
+        consulting librpmem, seems libfabrics works fine? */
+    if (mr = ibv_reg_mr(connected_id->pd, pmem_buffer, pmem_buffer_size,
+    // if (mr = ibv_reg_mr(connected_id->pd, dummy.get(), 1024,
+            IBV_ACCESS_LOCAL_WRITE |
+            IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE |
+            IBV_ACCESS_REMOTE_ATOMIC); !mr)
+        throw std::runtime_error(string("ibv_reg_mr() ") + std::strerror(errno));
+    defer([&] { ibv_dereg_mr(mr); });
 
-    /* TODO: halt until interrupt */
+    /* TODO: halt until interrupt, an RDMA Send from initiator will indicate
+        termination */
+    std::cout << "Enter 'q' to terminate [q] " << std::flush;
+    char q;
+    do {
+        std::cin >> q;
+    } while (q != 'q');
 
     return 0;
 }
