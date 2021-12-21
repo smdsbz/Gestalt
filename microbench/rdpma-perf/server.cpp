@@ -6,6 +6,8 @@
 
 #include <boost/program_options.hpp>
 #include <iostream>
+#include <cstdlib>
+#include <fstream>
 #include <filesystem>
 #include <stdexcept>
 #include <libpmem.h>
@@ -49,6 +51,24 @@ int main(const int argc, const char **argv)
     if ((uintptr_t)pmem_buffer % 4_K)
         throw std::runtime_error("mapped PMem not aligned");
     std::cout << "size of mapped PMem file is " << to_human_readable(pmem_buffer_size) << std::endl;
+
+    if (0) {
+    /* fill it with something to test */
+    std::system("dd if=/dev/urandom of=./payload.tmp bs=128 count=1");
+    {
+        ifstream f("./payload.tmp", std::ios::binary);
+        if (!f)
+            throw std::runtime_error("failed to open ./payload.tmp");
+        if (!f.read((char*)pmem_buffer, 128))
+            throw std::runtime_error("f.read()");
+        pmem_persist(pmem_buffer, 128);
+    }
+    std::cout << "payload content:" << std::endl;
+    for (size_t i = 0; i < 128 / 32; ++i) {
+        std::cout << std::hex << ((uint32_t*)pmem_buffer)[i]
+            << std::dec << std::endl;
+    }
+    }
 
     /* init RNIC */
     int num_rnic_devices;
@@ -105,10 +125,9 @@ int main(const int argc, const char **argv)
         /* NOTE: and yes, `dst_sin` is the received address, the other end,
             whilst `src_sin` is ours */
         << inet_ntoa(connected_id->route.addr.dst_sin.sin_addr)
-        << std::endl;;
+        << std::endl;
     /* register PMem */
     ibv_mr *mr;
-    auto dummy = std::make_unique<uint8_t[]>(1024);
     /* NOTE: IBV_ACCESS_ON_DEMAND is required for RPMem-ing */
     if (mr = ibv_reg_mr(connected_id->pd, pmem_buffer, pmem_buffer_size,
             IBV_ACCESS_ON_DEMAND | IBV_ACCESS_LOCAL_WRITE |
@@ -116,6 +135,12 @@ int main(const int argc, const char **argv)
             IBV_ACCESS_REMOTE_ATOMIC); !mr)
         throw std::runtime_error(string("ibv_reg_mr() ") + std::strerror(errno));
     defer([&] { ibv_dereg_mr(mr); });
+    std::cout << "server_mr: addr " << (uintptr_t)mr->addr
+        << " rkey " << mr->rkey << std::endl;
+    {
+        ofstream f("./server_mr.txt");
+        f << (uintptr_t)mr->addr << " " << mr->rkey;
+    }
 
     /* TODO: halt until interrupt, an RDMA Send from initiator will indicate
         termination */
