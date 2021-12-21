@@ -109,11 +109,9 @@ int main(const int argc, const char **argv)
     /* register PMem */
     ibv_mr *mr;
     auto dummy = std::make_unique<uint8_t[]>(1024);
-    /* DEBUG: ibv failed to register PMem.
-        consulting librpmem, seems libfabrics works fine? */
+    /* NOTE: IBV_ACCESS_ON_DEMAND is required for RPMem-ing */
     if (mr = ibv_reg_mr(connected_id->pd, pmem_buffer, pmem_buffer_size,
-    // if (mr = ibv_reg_mr(connected_id->pd, dummy.get(), 1024,
-            IBV_ACCESS_LOCAL_WRITE |
+            IBV_ACCESS_ON_DEMAND | IBV_ACCESS_LOCAL_WRITE |
             IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE |
             IBV_ACCESS_REMOTE_ATOMIC); !mr)
         throw std::runtime_error(string("ibv_reg_mr() ") + std::strerror(errno));
