@@ -53,14 +53,16 @@ int main(const int argc, const char **argv)
     /* get server mr key */
     ibv_mr server_mr;
     {
-        /* NOTE: wait for server to write down its key */
+        /* NOTE: wait for the server to register PMem to RNIC, then write down
+            its key. It's 128G, takes some time */
         this_thread::sleep_for(3s);
         ifstream f("./server_mr.txt");
         uintptr_t addr;
-        f >> addr >> server_mr.rkey;
+        f >> addr >> server_mr.length >> server_mr.rkey;
         server_mr.addr = (void*)addr;
     }
     std::cout << "server_mr: addr " << (uintptr_t)server_mr.addr
+        << " length " << server_mr.length
         << " rkey " << server_mr.rkey << std::endl;
 
     /* register a recv buffer */
@@ -136,25 +138,23 @@ int main(const int argc, const char **argv)
                                 .rkey = server_mr.rkey } },
         }, *bad_wr;
 
-        const size_t TEST_ROUNDS = 1000000;
+        const size_t TEST_ROUNDS = 10;
         vector<tuple</*length*/uint32_t,
                         /*total interval*/std::chrono::duration<double>>>
                 test_params{
-            {32, {}}, {64, {}},/*PCIe Lane*/
-            {128, {}}, {256, {}},/*XPLine*/
-            {512, {}}, {2_K, {}}, {4_K, {}}, {8_K, {}}
+            {32_B, {}}, {64_B, {}},/*PCIe Lane*/
+            {128_B, {}}, {256_B, {}},/*XPLine*/
+            {512_B, {}}, {2_K, {}}, {4_K, {}}, {8_K, {}}
         };
-        for (auto &t : test_params) {
-            sgl[0].length = std::get<0>(t);
+        for (auto &[test_iosize, test_run] : test_params) {
+            sgl[0].length = test_iosize;
             vector<uintptr_t> addrs(TEST_ROUNDS);
             {
                 std::mt19937 gen(std::random_device{}());
                 std::uniform_int_distribution<uintptr_t> distrib(
-                    (uintptr_t)server_mr.addr,
-                    (uintptr_t)server_mr.addr + server_mr.length
-                );
+                    0, server_mr.length / test_iosize - 1);
                 for (auto &a : addrs)
-                    a = distrib(gen);
+                    a = (uintptr_t)server_mr.addr + distrib(gen) * test_iosize;
             }
 
             const auto start = std::chrono::steady_clock::now();
@@ -168,13 +168,13 @@ int main(const int argc, const char **argv)
                     throw std::runtime_error(string("Persist Write failed ") + to_string(wc.status));
             }
             const auto end = std::chrono::steady_clock::now();
-            std::get<1>(t) = end - start;
+            test_run = end - start;
 
-            std::cout << "length " << std::setw(6) << to_human_readable(std::get<0>(t))
-                << " total(s) " << std::setw(9) << std::get<1>(t).count()
-                << " avg(us) " << std::setw(9) << (1e6 * std::get<1>(t) / TEST_ROUNDS).count()
-                << " IOPS(Mop/s) " << std::setw(9) << TEST_ROUNDS / std::get<1>(t).count() / 1e6
-                << " throughput(MB/s) " << std::setw(9) << std::get<0>(t) * TEST_ROUNDS / std::get<1>(t).count() / 1e6
+            std::cout << "length " << std::setw(6) << to_human_readable(test_iosize)
+                << " total(s) " << std::setw(9) << test_run.count()
+                << " avg(us) " << std::setw(9) << (1e6 * test_run / TEST_ROUNDS).count()
+                << " IOPS(Mop/s) " << std::setw(9) << TEST_ROUNDS / test_run.count() / 1e6
+                << " throughput(MB/s) " << std::setw(9) << test_iosize * TEST_ROUNDS / test_run.count() / 1e6
                 << std::endl;
         }
     }

@@ -136,10 +136,11 @@ int main(const int argc, const char **argv)
         throw std::runtime_error(string("ibv_reg_mr() ") + std::strerror(errno));
     defer([&] { ibv_dereg_mr(mr); });
     std::cout << "server_mr: addr " << (uintptr_t)mr->addr
+        << " length " << mr->length
         << " rkey " << mr->rkey << std::endl;
     {
         ofstream f("./server_mr.txt");
-        f << (uintptr_t)mr->addr << " " << mr->rkey;
+        f << (uintptr_t)mr->addr << " " << mr->length << " " << mr->rkey;
     }
 
     /* TODO: halt until interrupt, an RDMA Send from initiator will indicate

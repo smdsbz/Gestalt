@@ -4,7 +4,9 @@ project(gestalt)
 set(CMAKE_CXX_STANDARD 20)
 
 # libibverbs
-add_compile_options(-Wno-deprecated-enum-enum-conversion)
+add_compile_options(
+    -Wno-deprecated-enum-enum-conversion
+    -Wno-unused-result)
 
 add_subdirectory(playground)
 
