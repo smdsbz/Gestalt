@@ -8,6 +8,7 @@
 #include <iostream>
 #include <iomanip>
 #include <fstream>
+#include <filesystem>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -46,6 +47,9 @@ int main(const int argc, const char **argv)
     defer([&] { rdma_destroy_ep(client_id); });
 
     /* connect to server */
+    /* delete previous connection info first */
+    if (filesystem::exists("server_mr.txt"))
+        filesystem::remove("server_mr.txt");
     if (rdma_connect(client_id, NULL))
         throw std::runtime_error("rdma_connect()");
     std::cout << "connected to " << inet_ntoa(client_id->route.addr.dst_sin.sin_addr) << std::endl;
@@ -54,8 +58,10 @@ int main(const int argc, const char **argv)
     ibv_mr server_mr;
     {
         /* NOTE: wait for the server to register PMem to RNIC, then write down
-            its key. It's 128G, takes some time */
-        this_thread::sleep_for(3s);
+            its key. It's 256G, takes some time */
+        std::cout << "waiting for server to publish mr" << std::endl;
+        while (!filesystem::exists("server_mr.txt"))
+            this_thread::sleep_for(.5s);
         ifstream f("./server_mr.txt");
         uintptr_t addr;
         f >> addr >> server_mr.length >> server_mr.rkey;
@@ -73,7 +79,7 @@ int main(const int argc, const char **argv)
         throw std::runtime_error(string("ibv_reg_mr(): ") + std::strerror(errno));
     defer([&] { ibv_dereg_mr(local_mr); });
 
-    if (0) {
+#if 0
     /* test - try READ */
     {
         ibv_sge sgl[] = {
@@ -112,7 +118,7 @@ int main(const int argc, const char **argv)
             throw std::runtime_error("Read something else");
         }
     }
-    }
+#endif
 
     /* test RDMA Write */
     {
@@ -130,15 +136,15 @@ int main(const int argc, const char **argv)
             .wr = { .rdma = { .remote_addr = (uintptr_t)server_mr.addr,
                                 .rkey = server_mr.rkey } },
         }, wr{
-            .next = &__wr_persist,
-            // .next = NULL,
+            // .next = &__wr_persist,
+            .next = NULL,
             .sg_list = sgl, .num_sge = 1,
-            .opcode = IBV_WR_RDMA_WRITE, //.send_flags = IBV_SEND_SIGNALED,
+            .opcode = IBV_WR_RDMA_WRITE, .send_flags = IBV_SEND_SIGNALED,
             .wr = { .rdma = { .remote_addr = (uintptr_t)server_mr.addr,
                                 .rkey = server_mr.rkey } },
         }, *bad_wr;
 
-        const size_t TEST_ROUNDS = 10;
+        const size_t TEST_ROUNDS = (size_t)1e6;
         vector<tuple</*length*/uint32_t,
                         /*total interval*/std::chrono::duration<double>>>
                 test_params{
@@ -169,14 +175,24 @@ int main(const int argc, const char **argv)
             }
             const auto end = std::chrono::steady_clock::now();
             test_run = end - start;
-
-            std::cout << "length " << std::setw(6) << to_human_readable(test_iosize)
-                << " total(s) " << std::setw(9) << test_run.count()
-                << " avg(us) " << std::setw(9) << (1e6 * test_run / TEST_ROUNDS).count()
-                << " IOPS(Mop/s) " << std::setw(9) << TEST_ROUNDS / test_run.count() / 1e6
-                << " throughput(MB/s) " << std::setw(9) << test_iosize * TEST_ROUNDS / test_run.count() / 1e6
-                << std::endl;
         }
+
+        std::cout << std::left
+            << std::setw(12) << "length"
+            << std::setw(12) << "total(s)"
+            << std::setw(12) << "avg(us)"
+            << std::setw(16) << "IOPS(Mop/s)"
+            << std::setw(20) << "throughput(MB/s)"
+            << std::endl;
+        for (const auto &[test_iosize, test_run] : test_params)
+            std::cout << std::left
+                << std::setw(12) << to_human_readable(test_iosize)
+                << std::setw(12) << test_run.count()
+                << std::setw(12) << (1e6 * test_run / TEST_ROUNDS).count()
+                << std::setw(16) << (double)TEST_ROUNDS / test_run.count() / 1e6
+                << std::setw(20) << (double)test_iosize * TEST_ROUNDS / test_run.count() / 1_M
+                << std::endl;
+        std::cout << std::endl << std::right;
     }
 
 

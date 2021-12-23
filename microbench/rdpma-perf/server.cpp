@@ -24,35 +24,36 @@ using namespace std;
 int main(const int argc, const char **argv)
 {
     /* program arguments */
-    std::filesystem::path pmem_file_path;
+    std::string pmem_dev;
 
     namespace po = boost::program_options;
     po::options_description opt_desc;
     opt_desc.add_options()
-        ("pmem-file", po::value(&pmem_file_path), "Path to DAX file providing PMem space.");
+        ("pmem-dev", po::value(&pmem_dev), "PMem device name");
     po::variables_map opt_map;
     po::store(po::parse_command_line(argc, argv, opt_desc), opt_map);
     po::notify(opt_map);
 
     /* map PMem space */
-    if (!filesystem::exists(pmem_file_path) || !filesystem::is_regular_file(pmem_file_path))
-        throw std::invalid_argument("pmem-file");
+    const auto pmem_dev_path = filesystem::path("/dev/") / pmem_dev;
+    if (!filesystem::exists(pmem_dev_path) || !filesystem::is_character_file(pmem_dev_path))
+        throw std::invalid_argument("pmem-dev");
 
     size_t pmem_buffer_size; int is_pmem;
     auto pmem_buffer = pmem_map_file(
-        pmem_file_path.c_str(), 0, PMEM_FILE_EXCL, 0,
-        &pmem_buffer_size, &is_pmem
+        pmem_dev_path.c_str(), /*length=entire file*/0, /*flag*/0,
+        /*mode*/0, &pmem_buffer_size, &is_pmem
     );
     if (!pmem_buffer)
         throw std::runtime_error(string("pmem_map_file(): ") + std::strerror(errno));
     defer([&] { pmem_unmap(pmem_buffer, pmem_buffer_size); });
     if (!is_pmem)
-        throw std::runtime_error("not a PMem DAX file");
-    if ((uintptr_t)pmem_buffer % 4_K)
+        throw std::runtime_error("not PMem");
+    if ((uintptr_t)pmem_buffer % 2_M && (uintptr_t)pmem_buffer % 4_K)
         throw std::runtime_error("mapped PMem not aligned");
     std::cout << "size of mapped PMem file is " << to_human_readable(pmem_buffer_size) << std::endl;
 
-    if (0) {
+#if 0
     /* fill it with something to test */
     std::system("dd if=/dev/urandom of=./payload.tmp bs=128 count=1");
     {
@@ -68,7 +69,7 @@ int main(const int argc, const char **argv)
         std::cout << std::hex << ((uint32_t*)pmem_buffer)[i]
             << std::dec << std::endl;
     }
-    }
+#endif
 
     /* init RNIC */
     int num_rnic_devices;
@@ -77,8 +78,7 @@ int main(const int argc, const char **argv)
     if (!num_rnic_devices)
         throw std::runtime_error("get an RNIC first, dude");
     auto rnic_chosen = gestalt::misc::numa::choose_rnic_on_same_numa(
-        /*TODO: detect by file*/"pmem1",
-        rnic_devices, num_rnic_devices);
+        pmem_dev.c_str(), rnic_devices, num_rnic_devices);
     if (!rnic_chosen) {
         std::cerr << "cannot find a matching RNIC on the same NUMA, "
             << "default to the first RNIC listed!" << std::endl;
@@ -128,9 +128,10 @@ int main(const int argc, const char **argv)
         << std::endl;
     /* register PMem */
     ibv_mr *mr;
-    /* NOTE: IBV_ACCESS_ON_DEMAND is required for RPMem-ing */
+    /* DEBUG: IBV_ACCESS_ON_DEMAND is required for RPMem-ing to FSDAX, try
+        eliminate mandatory page fault with DEVDAX */
     if (mr = ibv_reg_mr(connected_id->pd, pmem_buffer, pmem_buffer_size,
-            IBV_ACCESS_ON_DEMAND | IBV_ACCESS_LOCAL_WRITE |
+            /*IBV_ACCESS_ON_DEMAND |*/ IBV_ACCESS_LOCAL_WRITE |
             IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE |
             IBV_ACCESS_REMOTE_ATOMIC); !mr)
         throw std::runtime_error(string("ibv_reg_mr() ") + std::strerror(errno));
@@ -143,7 +144,7 @@ int main(const int argc, const char **argv)
         f << (uintptr_t)mr->addr << " " << mr->length << " " << mr->rkey;
     }
 
-    /* TODO: halt until interrupt, an RDMA Send from initiator will indicate
+    /* CMBK: halt until interrupt, an RDMA Send from initiator will indicate
         termination */
     std::cout << "Enter 'q' to terminate [q] " << std::flush;
     char q;

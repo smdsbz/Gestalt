@@ -93,12 +93,27 @@ ibv_device *choose_rnic_on_same_numa(
         pt::read_json(ndctl_dump, tree);
 
         /* find our device's NUMA */
-        for (const auto &[i, d] : tree.get_child("data")) {
-            const auto &dn = d.get<std::string>("blockdev");
-            if (dn != pmem_dev)
-                continue;
-            numa = d.get<int>("numa_node");
-            break;
+        for (const auto &[i, node] : tree.get_child("data")) {
+            if (node.count("blockdev")) {
+                const auto &dn = node.get<std::string>("blockdev");
+                if (dn != pmem_dev)
+                    continue;
+                numa = node.get<int>("numa_node");
+                break;
+            }
+            if (node.count("daxregion")) {
+                for (const auto &[i, dev] : node.get_child("daxregion.devices")) {
+                    if (dev.get<std::string>("chardev") == pmem_dev) {
+                        numa = node.get<int>("numa_node");
+                        break;
+                    }
+                }
+                if (numa != -1)
+                    break;
+                else
+                    continue;
+            }
+            throw std::runtime_error("unkown ndctl item");
         }
     }
 
