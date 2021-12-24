@@ -17,11 +17,11 @@ constexpr size_t operator "" _G(unsigned long long int s) { return s * 1024_M; }
 
 std::string to_human_readable(size_t i)
 {
-    if (i > 1_G)
+    if (i >= 1_G)
         return std::to_string(i / 1_G) + "G";
-    if (i > 1_M)
+    if (i >= 1_M)
         return std::to_string(i / 1_M) + "M";
-    if (i > 1_K)
+    if (i >= 1_K)
         return std::to_string(i / 1_K) + "K";
     return std::to_string(i) + "B";
 }

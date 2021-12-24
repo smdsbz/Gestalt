@@ -128,7 +128,7 @@ int main(const int argc, const char **argv)
         << std::endl;
     /* register PMem */
     ibv_mr *mr;
-    /* DEBUG: IBV_ACCESS_ON_DEMAND is required for RPMem-ing to FSDAX, try
+    /* NOTE: IBV_ACCESS_ON_DEMAND is required for RPMem-ing to FSDAX, try
         eliminate mandatory page fault with DEVDAX */
     if (mr = ibv_reg_mr(connected_id->pd, pmem_buffer, pmem_buffer_size,
             /*IBV_ACCESS_ON_DEMAND |*/ IBV_ACCESS_LOCAL_WRITE |
