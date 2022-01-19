@@ -8,9 +8,9 @@ add_compile_options(
     -Wno-deprecated-enum-enum-conversion
     -Wno-unused-result)
 
-add_subdirectory(playground)
-
 add_subdirectory(src)
+
+add_subdirectory(playground)
 add_subdirectory(microbench)
 
 enable_testing()
