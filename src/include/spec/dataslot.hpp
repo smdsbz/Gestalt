@@ -6,7 +6,21 @@
  * Algorithms are also included in this header file, for in a completely client-
  * centric distributed system, all calculations should be idempotent, and all
  * verifications should follow the same protocal.
+ *
+ * @note
+ * Implementation in this header file is intended to be used by clients, and all
+ * memory operations are (or at least, could be) temporal, persistency is not
+ * guaranteed! Fast local PMem manipulation support at server side is currently
+ * not listed on the roadmap, as this implementation is likely to be only used
+ * for benchmarking, and full production feature (like high availability recovery
+ * procedure, scrubbing) will remain conceptual :)
  */
+
+#define USING_PMEM false
+#ifndef USING_PMEM
+#error "USING_PMEM must be specified before #include-ing"
+#endif
+static_assert(!USING_PMEM);
 
 #pragma once
 
@@ -121,7 +135,7 @@ struct [[gnu::packed]] dataslot_meta {
 
         static inline uint32_t hash(const string &k) noexcept
         {
-            return crc32_iscsi((unsigned char*)k.c_str(), k.length(), 0x114514);
+            return crc32_iscsi((uint8_t*)k.c_str(), k.length(), 0x114514);
         }
         inline auto hash() const
         {
@@ -132,11 +146,11 @@ struct [[gnu::packed]] dataslot_meta {
     public:
         inline void set(const char *k)
         {
-            if (strlen(k) > sizeof(key))
+            if (strlen(k) > sizeof(key) - 1)
                 throw std::invalid_argument("key too long");
             strcpy(this->_k, k);
         }
-        inline bool valid() const noexcept
+        inline bool is_valid() const noexcept
         {
             return !!_k[0];
         }
@@ -182,6 +196,7 @@ public:
      * @param dlen data length
      * @param dcrc data CRC
      */
+    [[deprecated]]
     dataslot_meta(const char *k, unsigned dlen, uint32_t dcrc) :
         key(k), length(dlen), data_crc(dcrc),
         atomic({.m = {.key_crc = key.hash(), .bits = bits_flag::valid}})
@@ -194,11 +209,13 @@ public:
      * @return
      * * 0 if key-related fields are valid
      * * -EINVAL if key is invalid, i.e. slot is unused
-     * * -ECOMM if key CRC does not match
+     * * -ECOMM if key is set but CRC does not match
      */
-    inline int key_valid() const noexcept
+    inline int key_validity() const noexcept
     {
-        if (!key.valid() || !(atomic.m.bits & bits_flag::valid))
+        if (!key.is_valid())
+            return -EINVAL;
+        if (!(atomic.m.bits & bits_flag::valid))
             return -EINVAL;
         if (key.hash() != atomic.m.key_crc)
             return -ECOMM;
@@ -209,6 +226,7 @@ public:
         atomic.m.bits = bits_flag::none;
         key.invalidate();
     }
+
     /**
      * Sets key-related field in metadata
      *
@@ -222,29 +240,154 @@ public:
         atomic.m.key_crc = key.hash();
         atomic.m.bits = bits_flag::valid;
     }
+
+    /**
+     * Check if metadata indicates the slot is currently (write) locked.
+     *
+     * @note
+     * This method only checks bits and nothing else, one should check for
+     * validity first and make sure the invocation is thread-safe.
+     *
+     * @return 
+     */
+    inline bool is_locked() const noexcept
+    {
+        return atomic.m.bits & bits_flag::lock;
+    }
 };
 static_assert(std::is_standard_layout_v<dataslot_meta>);
 static_assert(sizeof(dataslot_meta::atomic) == 8);
 static_assert(sizeof(dataslot_meta) == 512_B);
 
-
-struct dataslot {
+/**
+ * Slot in headless hashtable, packages user data and inline metadata.
+ *
+ * User data is packed ahead of metadata, for lock bit must be at the end of the
+ * slot (see @ref dataslot_meta ).
+ */
+struct [[gnu::packed]] dataslot {
     using meta_type = dataslot_meta;
     using key_type = dataslot_meta::key_type;
-    using value_type = uint8_t[DATA_SEG_LEN];
+
+    /**
+     * Packed buffer, with handy helpers
+     */
+    struct [[gnu::packed]] value_type {
+        uint8_t _d[DATA_SEG_LEN];
+
+        /* constructors */
+    public:
+        value_type() noexcept {}
+        /**
+         * Initialize with given data
+         * @param d source buffer
+         * @param len length to be copied
+         */
+        value_type(const void *d, size_t len)
+        {
+            this->set(d, len);
+        }
+
+        /* helpers */
+    public:
+        /**
+         * Assigns data
+         *
+         * @note
+         * Unused part of the buffer should be zeroed-out, for data length is
+         * not recorded here (or rather, due to our large-KV-spans-across-multiple-
+         * consecutive-slots-design, valid segment size of the current slot is
+         * not recorded at all), so we checksum on the entire block.
+         *
+         * @param d source data buffer
+         * @param len length to be copied
+         */
+        inline void set(const void *d, size_t len)
+        {
+            if (len > sizeof(_d))
+                throw std::invalid_argument("too large");
+            memcpy(_d, d, len);
+            memset(_d + len, 0, sizeof(_d) - len);
+        }
+
+        static inline uint32_t checksum(const void *d, size_t len) noexcept
+        {
+            return crc32_iscsi((uint8_t*)d, len, 0x1919810);
+        }
+        inline auto checksum() const noexcept
+        {
+            return checksum(_d, sizeof(_d));
+        }
+    } data;
 
     value_type data;
     meta_type meta;
 
     /* constructors */
 public:
+    /**
+     * Default constructor, constructs invalid / unused slot.
+     */
+    dataslot() noexcept : meta() {}
+    dataslot(const char *k, const void *d, size_t dlen)
+    {
+        /* optionally invalidate slot, setting data automatically causes checksum
+            to mismatch */
+        invalidate();
+        data.set(d, dlen);
+        meta.length = dlen;
+        meta.data_crc = data.checksum();
+        /* set valid flag at the end */
+        meta.set_key(k);
+    }
 
     /* required interface */
 public:
+    inline const key_type &key() const noexcept
+    {
+        return meta.key;
+    }
+    inline value_type &value() noexcept
+    {
+        return data;
+    }
+
+    inline void invalidate() noexcept
+    {
+        meta.invalidate();
+    }
+    inline bool is_valid() const noexcept
+    {
+        return (
+                meta.key_validity() == 0
+            && data.checksum() == meta.data_crc
+        );
+    }
+    inline bool is_invalid() const noexcept
+    {
+        return !is_valid();
+    }
 
     /* helpers */
 public:
-
+    /**
+     * Check slot validity
+     * @return
+     * * 0 slot is valid, ready to be read
+     * * -EINVAL if invalid or unused
+     * * -ECOMM if checksum, either key or data, does not match
+     * * -EAGAIN valid, but currently locked
+     */
+    inline int validity() const noexcept
+    {
+        if (auto kv = meta.key_validity(); kv)
+            return kv;
+        if (data.checksum() != meta.data_crc)
+            return -ECOMM;
+        if (meta.is_locked())
+            return -EAGAIN;
+        return 0;
+    }
 };
 static_assert(std::is_standard_layout_v<dataslot>);
 static_assert(sizeof(dataslot) % 512_B == 0);
