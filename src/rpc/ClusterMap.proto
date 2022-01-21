@@ -1,0 +1,40 @@
+syntax = "proto3";
+package gestalt.rpc;
+
+import "google/protobuf/empty.proto";
+
+
+service ClusterMap {
+    /**
+     * Adds a server to cluster map
+     *
+     * Server IDs are allocated in ascending order, where 0 is invalid.
+     *
+     * @param addr server address
+     * @return id - server ID
+     */
+    rpc AddServer(ServerProp) returns (ServerProp) {}
+
+    /**
+     * Get list of registered servers
+     */
+    rpc GetServers(google.protobuf.Empty) returns (ServerList) {}
+
+    /**
+     * Update heartbeat of source server
+     *
+     * NOTE: we won't bother implementing HA for now
+     */
+    // rpc Heartbeat(google.protobuf.Empty) returns (google.protobuf.Empty) {}
+}
+
+
+// server properties
+message ServerProp {
+    uint32 id = 1;      // server unique ID
+    string addr = 2;    // server's IP address
+}
+
+message ServerList {
+    repeated ServerProp servers = 1;    // list of servers registered
+}

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(gestalt)
+project(gestalt CXX)
 set(CMAKE_CXX_STANDARD 20)
 
 # libibverbs
@@ -10,8 +10,8 @@ add_compile_options(
 
 add_subdirectory(src)
 
-add_subdirectory(playground)
-add_subdirectory(microbench)
+add_subdirectory(playground EXCLUDE_FROM_ALL)
+add_subdirectory(microbench EXCLUDE_FROM_ALL)
 
 enable_testing()
-add_subdirectory(unittest)
+add_subdirectory(unittest EXCLUDE_FROM_ALL)

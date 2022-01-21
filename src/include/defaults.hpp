@@ -18,6 +18,7 @@ const vector<filesystem::path> config_paths{
     "/etc/gestalt/gestalt.conf",
     "gestalt.conf",
     "etc/gestalt/gestalt.conf",
+    "../../etc/gestalt/gestalt.conf",
 };
 
 }   /* namespace defaults */

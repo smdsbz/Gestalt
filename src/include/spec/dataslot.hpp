@@ -137,7 +137,7 @@ struct [[gnu::packed]] dataslot_meta {
         {
             return crc32_iscsi((uint8_t*)k.c_str(), k.length(), 0x114514);
         }
-        inline auto hash() const
+        inline auto hash() const noexcept
         {
             return hash(_k);
         }
@@ -163,22 +163,28 @@ struct [[gnu::packed]] dataslot_meta {
     uint32_t length;
     uint32_t data_crc;
 
-    enum bits_shift {
-        lock,
-        valid = 7,
-    };
     enum bits_flag : uint8_t {
-        none = 0,
-        lock = 1 << bits_shift::lock,
-        valid = 1 << bits_shift::valid,
+        none    = 0,
+        lock    = 0b00000001,
+        valid   = 0b10000000,
     };
-    union {
+    union a {
         uint64_t u64;
-        struct [[gnu::packed]] {
-            uint32_t key_crc;
-            uint8_t _[3];
-            atomic<bits_flag> bits;
+        struct [[gnu::packed]] p {
+            uint32_t key_crc = 0;
+            uint8_t _[3] = {0};
+            atomic<bits_flag> bits = bits_flag::none;
+        public:
+            constexpr p() noexcept = default;
         } m;
+
+        a() noexcept : m()
+        { }
+        a(uint32_t crc, bits_flag f = bits_flag::valid) noexcept
+        {
+            m.key_crc = crc;
+            m.bits = f;
+        }
     } atomic;
 
     /* constructors */
@@ -186,9 +192,8 @@ public:
     /**
      * Default constructor, constructs invalid slot metadata.
      */
-    dataslot_meta() noexcept : key(), atomic({.m.bits = bits_flag::none}) {}
-    dataslot_meta(const char *k) :
-        key(k), atomic({.m = {.key_crc = key.hash(), .bits = bits_flag::valid}})
+    dataslot_meta() noexcept : key(), atomic() {}
+    dataslot_meta(const char *k) : key(k), atomic(key.hash())
     { }
     /**
      * Helper when initialized with data.
@@ -196,10 +201,8 @@ public:
      * @param dlen data length
      * @param dcrc data CRC
      */
-    [[deprecated]]
     dataslot_meta(const char *k, unsigned dlen, uint32_t dcrc) :
-        key(k), length(dlen), data_crc(dcrc),
-        atomic({.m = {.key_crc = key.hash(), .bits = bits_flag::valid}})
+        key(k), length(dlen), data_crc(dcrc), atomic(key.hash())
     { }
 
     /* helpers */
@@ -287,6 +290,7 @@ struct [[gnu::packed]] dataslot {
         {
             this->set(d, len);
         }
+        value_type(const value_type &) = delete;
 
         /* helpers */
     public:
@@ -309,6 +313,14 @@ struct [[gnu::packed]] dataslot {
             memcpy(_d, d, len);
             memset(_d + len, 0, sizeof(_d) - len);
         }
+        /**
+         * Get buffer
+         * @return raw buffer pointer
+         */
+        inline auto get() noexcept
+        {
+            return _d;
+        }
 
         static inline uint32_t checksum(const void *d, size_t len) noexcept
         {
@@ -320,7 +332,6 @@ struct [[gnu::packed]] dataslot {
         }
     } data;
 
-    value_type data;
     meta_type meta;
 
     /* constructors */
@@ -340,6 +351,10 @@ public:
         /* set valid flag at the end */
         meta.set_key(k);
     }
+    dataslot(const string &k, const value_type &v) :
+        data(const_cast<value_type&>(v).get(), sizeof(v)),
+        meta(k.c_str(), sizeof(v), v.checksum())
+    { }
 
     /* required interface */
 public:
@@ -390,6 +405,6 @@ public:
     }
 };
 static_assert(std::is_standard_layout_v<dataslot>);
-static_assert(sizeof(dataslot) % 512_B == 0);
+static_assert((sizeof(dataslot) % 512_B) == 0);
 
 }   /* namespace gestalt */

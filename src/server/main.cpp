@@ -5,12 +5,11 @@
  */
 
 #include <filesystem>
-#include <vector>
-#include <fstream>
-#include <boost/log/core.hpp>
+
 #include <boost/log/trivial.hpp>
-#include <boost/log/expressions.hpp>
+#include "common/boost_log_helper.hpp"
 #include <boost/program_options.hpp>
+
 #include "defaults.hpp"
 
 using namespace std;
@@ -39,31 +38,9 @@ int main(const int argc, const char **argv)
         po::notify(vm);
     }
 
-    /* set Boost log level */
-    {
-        bool isset = false;
-#define LOG_LEVEL_SET(lv)                                                   \
-do {                                                                        \
-    namespace logging = boost::log;                                         \
-    if (!isset && log_level == #lv) {                                       \
-        logging::core::get()->set_filter(                                   \
-            logging::trivial::severity >= logging::trivial::lv              \
-        );                                                                  \
-        isset = true;                                                       \
-    }                                                                       \
-} while (0)
-        LOG_LEVEL_SET(trace);
-        LOG_LEVEL_SET(debug);
-        LOG_LEVEL_SET(info);
-        LOG_LEVEL_SET(warning);
-        LOG_LEVEL_SET(error);
-        LOG_LEVEL_SET(fatal);
-        if (!isset)
-            LOG_LEVEL_SET(info);
-#undef LOG_LEVEL_SET
-    }
+    set_boost_log_level(log_level);
 
-    /* load config file */
+    /* test config file */
     if (config_path.empty()) {
         for (auto &p : gestalt::defaults::config_paths) {
             if (!filesystem::is_regular_file(p))
@@ -77,9 +54,8 @@ do {                                                                        \
         exit(EXIT_FAILURE);
     }
 
-    {
-        // TODO: parse config file
-    }
+
+    /* TODO: run server */
 
 
     return 0;
