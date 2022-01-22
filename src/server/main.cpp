@@ -24,6 +24,7 @@ int main(const int argc, const char **argv)
     string log_level;               // Boost log level
     unsigned server_id = 0;         // specified server ID
     string server_addr;             // specified server address
+    filesystem::path dax_path;      // path to devdax
 
     {
         namespace po = boost::program_options;
@@ -37,6 +38,8 @@ int main(const int argc, const char **argv)
                 "Logging level (Boost).")
             ("id", po::value(&server_id), "specify server ID")
             ("addr", po::value(&server_addr), "specify server address")
+            ("dax-dev", po::value(&dax_path)->required(),
+                "Path to DEVDAX device.")
             ;
         po::variables_map vm;
         po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -63,7 +66,7 @@ int main(const int argc, const char **argv)
     /* TODO: run server */
 
     auto server_runtime = gestalt::Server::create(
-        config_path, server_id, server_addr);
+        config_path, server_id, server_addr, dax_path);
     BOOST_LOG_TRIVIAL(info) << "Server runtime successfully up and run!";
 
     return 0;

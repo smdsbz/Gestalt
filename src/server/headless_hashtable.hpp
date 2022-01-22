@@ -90,11 +90,11 @@ private:
 
 public:
     /**
-     *  @param d Data storage buffer
+     *  @param d Data storage buffer, lifespan should be managed by caller
      *  @param capacity Length of buffer `d` in object count
      *  @param max_search_length Maximum linear search length, w/o the original
      *      one, defaults to 5
-     *  @throw std:invalid_argument
+     *  @throw std::invalid_argument
      */
     HeadlessHashTable(entry_type *d, size_t capacity, size_t max_search_length = 5)
         : _d(d), _capacity(capacity), _max_search(max_search_length)

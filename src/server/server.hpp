@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <functional>
 
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/core/noncopyable.hpp>
@@ -25,16 +26,21 @@ using namespace std;
 class Server final : boost::noncopyable {
 
     /* cluster runtime */
-    unsigned id;    ///< server unique ID
+    const unsigned id;  ///< server unique ID
 
     /* instance runtime */
-    boost::property_tree::ptree config;     ///< configurations
+    const boost::property_tree::ptree config;   ///< configurations
 
     /* storage management */
-    unique_ptr<HeadlessHashTable<dataslot>> storage;    ///< storage container
+    /**
+     * managed PMem space, must supply a custom deleter that calls pmem_unmap()
+     */
+    unique_ptr<void, std::function<void(void*)>> pmem_space;
+    size_t pmem_size;
+    HeadlessHashTable<dataslot> storage;    ///< storage container
 
     /* network management */
-    boost::asio::ip::address addr;  ///< server network interface
+    const boost::asio::ip::address addr;    ///< server network interface
 
     /* con/destructors */
 public:
@@ -48,21 +54,22 @@ public:
      */
     static unique_ptr<Server> create(
         const filesystem::path &config_path,
-        unsigned id, const string &addr);
+        unsigned id, const string &addr,
+        filesystem::path dax_path);
     /**
+     * Don't use this directly, use create() instead
      * @private
-     * @param _id 
-     * @param _cfg 
-     * @param _s 
-     * @param _addr 
      */
     Server(
         unsigned _id,
         const boost::property_tree::ptree &_cfg,
-        HeadlessHashTable<dataslot> *_s,
+        unique_ptr<void> &&_pmem, size_t _size,
         const boost::asio::ip::address &_addr
     ) noexcept :
-        id(_id), config(_cfg), storage(_s), addr(_addr)
+        id(_id), config(_cfg),
+        pmem_space(std::move(_pmem)), pmem_size(_size),
+        storage(static_cast<dataslot*>(pmem_space.get()), pmem_size / sizeof(dataslot)),
+        addr(_addr)
     { }
 
     ~Server();
