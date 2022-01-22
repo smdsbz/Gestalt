@@ -11,6 +11,7 @@
 #include <boost/program_options.hpp>
 
 #include "defaults.hpp"
+#include "./server.hpp"
 
 using namespace std;
 
@@ -21,6 +22,8 @@ int main(const int argc, const char **argv)
 
     filesystem::path config_path;   // path to config file
     string log_level;               // Boost log level
+    unsigned server_id = 0;         // specified server ID
+    string server_addr;             // specified server address
 
     {
         namespace po = boost::program_options;
@@ -32,6 +35,8 @@ int main(const int argc, const char **argv)
                 "./etc/gestalt/gestalt.conf, whichever comes first.")
             ("log", po::value(&log_level)->default_value("info"),
                 "Logging level (Boost).")
+            ("id", po::value(&server_id), "specify server ID")
+            ("addr", po::value(&server_addr), "specify server address")
             ;
         po::variables_map vm;
         po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -57,6 +62,9 @@ int main(const int argc, const char **argv)
 
     /* TODO: run server */
 
+    auto server_runtime = gestalt::Server::create(
+        config_path, server_id, server_addr);
+    BOOST_LOG_TRIVIAL(info) << "Server runtime successfully up and run!";
 
     return 0;
 }

@@ -11,11 +11,13 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 #include <boost/log/trivial.hpp>
 #include "common/boost_log_helper.hpp"
 #include <boost/program_options.hpp>
 #include <boost/property_tree/ini_parser.hpp>
+#include <boost/asio/ip/address.hpp>
 
 #include <grpcpp/server.h>
 #include <grpcpp/server_builder.h>
@@ -40,9 +42,9 @@ class ClusterMapImpl final : public gestalt::rpc::ClusterMap::Service {
     mutable std::mutex _mutex;
 
     struct server_prop_t {
-        string addr;
+        boost::asio::ip::address addr;
     public:
-        server_prop_t(const string &_addr) noexcept :
+        server_prop_t(const boost::asio::ip::address &_addr) noexcept :
             addr(_addr)
         { }
     };
@@ -56,11 +58,38 @@ public:
         const ServerProp *in, ServerProp *out) override
     {
         std::scoped_lock l(_mutex);
-        const auto &last = server_props.rbegin();
-        unsigned new_id = (last == server_props.rend()) ? last->first + 1 : 1;
-        server_props.insert({new_id, {in->addr()}});
+
+        unsigned new_id;
+        /* forcing an ID */
+        if (new_id = in->id(); new_id) {
+            if (server_props.contains(new_id)) {
+                BOOST_LOG_TRIVIAL(warning) << "Try re-registering a server ID "
+                    << new_id << ", do nothing";
+                return Status(StatusCode::ALREADY_EXISTS,
+                    "server with this ID already exists");
+            }
+        }
+        /* generate new ID */
+        else {
+            const auto &last = server_props.rbegin();
+            new_id = (last == server_props.rend()) ? 1 : last->first + 1;
+        }
+
+        /* verifying address */
+        boost::asio::ip::address addr;
+        try {
+            addr = boost::asio::ip::make_address(in->addr());
+        }
+        catch (std::exception &e) {
+            BOOST_LOG_TRIVIAL(warning) << "Failed to digest server address "
+                << in->addr() << ": " << e.what();
+            return Status(StatusCode::INVALID_ARGUMENT, "addr");
+        }
+
+        server_props.insert({new_id, {addr}});
         BOOST_LOG_TRIVIAL(info) << "Registered server " << new_id
             << " @ " << in->addr();
+
         out->set_id(new_id);
         return Status::OK;
     }
@@ -72,7 +101,9 @@ public:
         for (const auto &[id, prop] : server_props) {
             auto p = out->add_servers();
             p->set_id(id);
-            p->set_addr(prop.addr);
+            ostringstream addr;
+            addr << prop.addr;
+            p->set_addr(addr.str());
         }
         return Status::OK;
     }

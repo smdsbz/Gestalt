@@ -10,6 +10,7 @@ service ClusterMap {
      *
      * Server IDs are allocated in ascending order, where 0 is invalid.
      *
+     * @param id [optional] if given, i.e. non-zero, force using this as ID
      * @param addr server address
      * @return id - server ID
      */
@@ -25,7 +26,7 @@ service ClusterMap {
      *
      * NOTE: we won't bother implementing HA for now
      */
-    // rpc Heartbeat(google.protobuf.Empty) returns (google.protobuf.Empty) {}
+    //rpc Heartbeat(google.protobuf.Empty) returns (google.protobuf.Empty) {}
 }
 
 

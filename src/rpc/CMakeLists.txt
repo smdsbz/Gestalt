@@ -23,7 +23,7 @@ add_custom_command(
         ${${SERVICE}_PROTO}
     DEPENDS ${${SERVICE}_PROTO})
 
-add_library(${SERVICE}_grpc_proto
+add_library(${SERVICE}_grpc_proto SHARED
     ${${SERVICE}_PROTO_SRC}
     ${${SERVICE}_PROTO_HDR}
     ${${SERVICE}_GRPC_SRC}

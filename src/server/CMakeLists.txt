@@ -14,12 +14,12 @@ target_link_libraries(${TARGET}
 set(TARGET gestaltserver)
 add_library(${TARGET} SHARED server.cpp server.hpp)
 add_library(gestalt::shared::server ALIAS ${TARGET})
-find_package(Boost REQUIRED COMPONENTS headers log)
+find_package(Boost REQUIRED COMPONENTS headers log system)
 target_link_libraries(${TARGET}
     PUBLIC
         Boost::headers
     PRIVATE
-        Boost::log
+        Boost::log Boost::system
         gestalt::misc::numa gestalt::misc::ddio
         rdmacm ibverbs
         gestalt::headless_hashtable
