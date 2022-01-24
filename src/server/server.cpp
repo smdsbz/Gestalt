@@ -85,10 +85,11 @@ unique_ptr<Server> Server::create(
             throw std::runtime_error(what.str());
         }
     }
-    decltype(Server::pmem_space) managed_pmem_map(pmem_space,
-        [=](void*) { pmem_unmap(pmem_space, pmem_size); });
+    managed_pmem_t managed_pmem(pmem_space, pmem_size);
 
     /* get RNIC */
+    /* TODO: don't know how to get RNIC name from IP address directly, so this
+        piece of code effectively does nothing */
     string rnic_name;
     {
         int num_rnics;
@@ -109,18 +110,92 @@ unique_ptr<Server> Server::create(
         rnic_name = chosen->name;
     }
 
-    /* register memory region */
+    /* start RDMA CM */
+    rdma_cm_id *raw_listen_id;
+    {
+        unsigned port = config.get_child("server.port").get_value<unsigned>();
+        rdma_addrinfo
+            hint{.ai_flags = RAI_PASSIVE, .ai_port_space = RDMA_PS_TCP},
+            *info;
+        if (rdma_getaddrinfo(
+                addr.c_str(), std::to_string(port).c_str(),
+                &hint, &info)) {
+            ostringstream what;
+            what << "Failed to resolve " << addr << ":" << port
+                << ": " << std::strerror(errno);
+            BOOST_LOG_TRIVIAL(fatal) << what.str();
+            throw std::runtime_error(what.str());
+        }
+        defer([&] { rdma_freeaddrinfo(info); });
+        ibv_qp_init_attr init_attr{
+            .cap = { .max_send_wr = 16, .max_recv_wr = 16,
+                        .max_send_sge = 16, .max_recv_sge = 16,
+                        .max_inline_data = 512 },
+            .qp_type = IBV_QPT_RC,
+            .sq_sig_all = 0
+        };
+        if (rdma_create_ep(&raw_listen_id, info, /*qp*/NULL, &init_attr)) {
+            ostringstream what;
+            what << "rdma_create_ep() on " << addr << ":" << port << "failed"
+                << ": " << std::strerror(errno);
+            BOOST_LOG_TRIVIAL(fatal) << what.str();
+            throw std::runtime_error(what.str());
+        }
+    }
+    decltype(Server::listen_id) listen_id(raw_listen_id);
 
     return make_unique<Server>(
         id, config,
-        std::move(managed_pmem_map), pmem_space,
-        boost::asio::ip::make_address(addr)
+        std::move(managed_pmem),
+        boost::asio::ip::make_address(addr), rnic_name,
+        std::move(listen_id)
     );
 }
 
+Server::Server(
+    unsigned _id,
+    const boost::property_tree::ptree &_cfg,
+    managed_pmem_t &&_pmem,
+    const boost::asio::ip::address &_addr,
+    const string &_rnic,
+    decltype(listen_id) &&_listen_id
+) : id(_id), config(_cfg),
+    managed_pmem(std::move(_pmem)),
+    storage(static_cast<dataslot*>(managed_pmem.buffer),
+            managed_pmem.size / sizeof(dataslot)),
+    addr(_addr), rnic_name(_rnic), listen_id(std::move(_listen_id)),
+    ddio_guard(misc::ddio::scope_guard::from_rnic(rnic_name.c_str())),
+    is_stopping(false)
+{ }
+
 Server::~Server()
+{ }
+
+
+/**
+ * runs indefinitely unless stop() called
+ *
+ * 1. start listening for incoming connections
+ * 2. start and block on RPC service
+ * 3. try to stop when stop() is invoked
+ */
+void Server::run()
 {
-    // TODO:
+    if (rdma_listen(listen_id.get(), 0)) {
+        ostringstream what;
+        what << "rdma_listen(): " << std::strerror(errno);
+        BOOST_LOG_TRIVIAL(error) << what.str();
+        throw std::runtime_error(what.str());
+    }
+
+    while (is_stopping.load() == false) {
+        // TODO:
+    }
+}
+
+void Server::stop()
+{
+    is_stopping.store(true);
 }
 
 }   /* namespace gestalt */

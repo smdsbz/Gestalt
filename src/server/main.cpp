@@ -67,7 +67,11 @@ int main(const int argc, const char **argv)
 
     auto server_runtime = gestalt::Server::create(
         config_path, server_id, server_addr, dax_path);
-    BOOST_LOG_TRIVIAL(info) << "Server runtime successfully up and run!";
+    BOOST_LOG_TRIVIAL(info) << "Server runtime successfully created!";
+
+    /* TODO: register stop() to SIGINT */
+
+    server_runtime->run();
 
     return 0;
 }

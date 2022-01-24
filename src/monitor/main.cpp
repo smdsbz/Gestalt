@@ -37,7 +37,7 @@ using namespace grpc;
 using namespace google::protobuf;
 
 
-class ClusterMapImpl final : public gestalt::rpc::ClusterMap::Service {
+class ClusterMapServicer final : public gestalt::rpc::ClusterMap::Service {
 
     mutable std::mutex _mutex;
 
@@ -51,7 +51,7 @@ class ClusterMapImpl final : public gestalt::rpc::ClusterMap::Service {
     map<unsigned, server_prop_t> server_props;  ///< server ID -> properties
 
 public:
-    ClusterMapImpl() : server_props()
+    ClusterMapServicer() : server_props()
     { }
 
     Status AddServer(ServerContext *ctx,
@@ -107,7 +107,7 @@ public:
         }
         return Status::OK;
     }
-};  /* class ClusterMapImpl */
+};  /* class ClusterMapServicer */
 
 }   /* namespace rpc */
 }   /* namespace gestalt */
@@ -158,7 +158,7 @@ int main(const int argc, const char **argv)
     }
 
     /* start gRPC service */
-    gestalt::rpc::ClusterMapImpl clustermap_svc;
+    gestalt::rpc::ClusterMapServicer clustermap_svc;
     grpc::ServerBuilder grpc_builder;
     const auto &clustermap_server_port =
         config.get_child("global.monitor_address").get_value<string>();
