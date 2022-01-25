@@ -30,12 +30,15 @@ service ClusterMap {
 }
 
 
-// server properties
+/** server properties */
 message ServerProp {
+    /** server unique ID */
     uint32 id = 1;      // server unique ID
-    string addr = 2;    // server's IP address
+    /** server's IP address */
+    string addr = 2;
 }
 
 message ServerList {
-    repeated ServerProp servers = 1;    // list of servers registered
+    /** list of servers registered */
+    repeated ServerProp servers = 1;
 }

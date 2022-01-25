@@ -12,8 +12,10 @@ target_link_libraries(${TARGET}
 
 # server object as library
 set(TARGET gestaltserver)
-add_library(${TARGET} SHARED server.cpp server.hpp)
-add_library(gestalt::shared::server ALIAS ${TARGET})
+# NOTE: add headers as well, otherwise we don't get IntelliSense :)
+add_library(${TARGET} server.cpp server.hpp
+    session_servicer.cpp session_servicer.hpp)
+add_library(gestalt::lib::server ALIAS ${TARGET})
 find_package(Boost REQUIRED COMPONENTS headers log system)
 target_link_libraries(${TARGET}
     PUBLIC
@@ -22,8 +24,9 @@ target_link_libraries(${TARGET}
         Boost::log Boost::system
         gestalt::misc::numa gestalt::misc::ddio
         rdmacm ibverbs
+        pmem
         gestalt::headless_hashtable
-        ClusterMap_grpc_proto)
+        ClusterMap_grpc_proto Session_grpc_proto)
 
 set(TARGET gestalt_server)
 add_executable(${TARGET} main.cpp)
@@ -33,4 +36,4 @@ set_target_properties(${TARGET}
 find_package(Boost REQUIRED COMPONENTS program_options log)
 target_link_libraries(${TARGET}
     Boost::program_options Boost::log
-    gestalt::shared::server)
+    gestalt::lib::server)

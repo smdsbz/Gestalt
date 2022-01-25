@@ -6,23 +6,30 @@
 
 #include <sstream>
 #include <fstream>
+#include <thread>
+#include <chrono>
+using namespace std::chrono_literals;
+
+#include "common/boost_log_helper.hpp"
+#include <boost/property_tree/ini_parser.hpp>
 
 #include <libpmem.h>
 #include <rdma/rdma_cma.h>
-#include <boost/log/trivial.hpp>
-#include <boost/property_tree/ini_parser.hpp>
-
 #include <grpcpp/channel.h>
 #include <grpcpp/create_channel.h>
 #include <grpcpp/security/credentials.h>
 #include <grpcpp/client_context.h>
 #include "ClusterMap.pb.h"
 #include "ClusterMap.grpc.pb.h"
+#include <grpcpp/server.h>
+#include <grpcpp/server_builder.h>
+#include <grpcpp/security/server_credentials.h>
 
 #include "./server.hpp"
 #include "misc/numa.hpp"
 #include "misc/ddio.hpp"
 #include "common/defer.hpp"
+#include "./session_servicer.hpp"
 
 
 namespace gestalt {
@@ -181,16 +188,26 @@ Server::~Server()
  */
 void Server::run()
 {
-    if (rdma_listen(listen_id.get(), 0)) {
-        ostringstream what;
-        what << "rdma_listen(): " << std::strerror(errno);
-        BOOST_LOG_TRIVIAL(error) << what.str();
-        throw std::runtime_error(what.str());
+    /* start listening */
+    if (rdma_listen(listen_id.get(), 0))
+        boost_log_errno_throw(rdma_listen);
+
+    /* start RPC service */
+    gestalt::rpc::SessionServicer session_svc(this);
+    grpc::ServerBuilder grpc_builder;
+    {
+        ostringstream port;
+        port << this->addr << ":"
+            << config.get_child("server.port").get_value<unsigned>();
+        grpc_builder.AddListeningPort(port.str(), grpc::InsecureServerCredentials());
     }
+    grpc_builder.RegisterService(&session_svc);
+    auto session_grpc_server = grpc_builder.BuildAndStart();
 
     while (is_stopping.load() == false) {
-        // TODO:
+        std::this_thread::sleep_for(1s);
     }
+    session_grpc_server->Wait();
 }
 
 void Server::stop()

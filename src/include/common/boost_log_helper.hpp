@@ -6,6 +6,9 @@
 
 #pragma once
 
+#include <sstream>
+#include <stdexcept>
+
 #include <boost/log/core.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/log/expressions.hpp>
@@ -41,4 +44,13 @@ do {                                                                        \
     __match_log_level(lv, fatal, isset);                                    \
     if (!isset)                                                             \
         __set_log_level(info);                                              \
+} while (0)
+
+
+#define boost_log_errno_throw(fn)                                           \
+do {                                                                        \
+    std::ostringstream what;                                                \
+    what << #fn << "(): " << std::strerror(errno);                          \
+    BOOST_LOG_TRIVIAL(error) << what.str();                                 \
+    throw std::runtime_error(what.str());                                   \
 } while (0)

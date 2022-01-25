@@ -5,7 +5,7 @@ find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin)
 set(PROTO_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
 foreach(SERVICE
-    ClusterMap)
+    ClusterMap Session)
 
 set(${SERVICE}_PROTO "${CMAKE_CURRENT_SOURCE_DIR}/${SERVICE}.proto")
 set(${SERVICE}_PROTO_SRC "${PROTO_OUT_DIR}/${SERVICE}.pb.cc")

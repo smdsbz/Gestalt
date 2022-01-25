@@ -14,6 +14,7 @@
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/core/noncopyable.hpp>
 #include <boost/asio/ip/address.hpp>
+#include "common/boost_log_helper.hpp"
 #include <libpmem.h>
 #include <rdma/rdma_cma.h>
 
@@ -82,15 +83,30 @@ class Server final : boost::noncopyable {
         inline void operator()(rdma_cm_id *ep)
         {
             if (int r = rdma_disconnect(ep); r)
-                throw std::runtime_error(string("rdma_disconnect(): ") + strerror(errno));
+                boost_log_errno_throw(rdma_disconnect);
             rdma_destroy_ep(ep);
         }
     };
+    struct __IbvMrDeleter {
+        inline void operator()(ibv_mr *mr)
+        {
+            if (ibv_dereg_mr(mr))
+                boost_log_errno_throw(ibv_dereg_mr);
+        }
+    };
+    struct client_prop_t : boost::noncopyable {
+        unique_ptr<rdma_cm_id, __RdmaConnDeleter> ep;
+        unique_ptr<ibv_mr, __IbvMrDeleter> mr;
+    public:
+        client_prop_t(decltype(ep) &&_ep, decltype(mr) &&_mr) noexcept :
+            ep(std::move(_ep)), mr(std::move(_mr))
+        { }
+        client_prop_t(client_prop_t &&o) noexcept :
+            ep(std::move(o.ep)), mr(std::move(o.mr))
+        { }
+    };
     /** client unique ID -> accepted connection endpoint */
-    unordered_map<
-        unsigned,
-        unique_ptr<rdma_cm_id, __RdmaConnDeleter>
-    > connected_client_id;
+    unordered_map<unsigned, client_prop_t> connected_client_id;
 
     /* runtime */
 
