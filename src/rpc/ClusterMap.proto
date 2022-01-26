@@ -16,6 +16,8 @@ service ClusterMap {
      */
     rpc AddServer(ServerProp) returns (ServerProp) {}
 
+    //rpc RemoveServer(ServerProp) returns (google.protobuf.Empty) {}
+
     /**
      * Get list of registered servers
      */

@@ -76,18 +76,18 @@ unique_ptr<Server> Server::create(
     void *pmem_space;
     size_t pmem_size;
     {
-        if (!filesystem::is_character_file(dax_path)) {
-            ostringstream what;
-            what << "Cannot map DEVDAX at " << dax_path;
-            BOOST_LOG_TRIVIAL(fatal) << what.str();
-            throw std::runtime_error(what.str());
-        }
+        // if (!filesystem::is_character_file(dax_path)) {
+        //     ostringstream what;
+        //     what << "Cannot map DEVDAX at " << dax_path;
+        //     BOOST_LOG_TRIVIAL(fatal) << what.str();
+        //     throw std::runtime_error(what.str());
+        // }
         pmem_space = pmem_map_file(
             dax_path.c_str(), /*length=entire file*/0, /*flag*/0, /*mode*/0,
             &pmem_size, NULL);
         if (!pmem_space) {
             ostringstream what;
-            what << "Failed to map DEVDAX at " << dax_path;
+            what << "Failed to map DEVDAX at " << dax_path << ": " << std::strerror(errno);
             BOOST_LOG_TRIVIAL(fatal) << what.str();
             throw std::runtime_error(what.str());
         }
@@ -143,8 +143,8 @@ unique_ptr<Server> Server::create(
         };
         if (rdma_create_ep(&raw_listen_id, info, /*qp*/NULL, &init_attr)) {
             ostringstream what;
-            what << "rdma_create_ep() on " << addr << ":" << port << "failed"
-                << ": " << std::strerror(errno);
+            what << "rdma_create_ep() on " << addr << ":" << port << " failed: "
+                << std::strerror(errno);
             BOOST_LOG_TRIVIAL(fatal) << what.str();
             throw std::runtime_error(what.str());
         }
@@ -176,7 +176,10 @@ Server::Server(
 { }
 
 Server::~Server()
-{ }
+{
+    stop();
+    /* CMBK: unregister from monitor, for now we don't bother  */
+}
 
 
 /**

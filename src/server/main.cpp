@@ -5,6 +5,7 @@
  */
 
 #include <filesystem>
+#include <unistd.h>
 
 #include <boost/log/trivial.hpp>
 #include "common/boost_log_helper.hpp"
@@ -37,7 +38,7 @@ int main(const int argc, const char **argv)
             ("log", po::value(&log_level)->default_value("info"),
                 "Logging level (Boost).")
             ("id", po::value(&server_id), "specify server ID")
-            ("addr", po::value(&server_addr), "specify server address")
+            ("addr", po::value(&server_addr)->required(), "specify server address")
             ("dax-dev", po::value(&dax_path)->required(),
                 "Path to DEVDAX device.")
             ;
@@ -47,6 +48,12 @@ int main(const int argc, const char **argv)
     }
 
     set_boost_log_level(log_level);
+
+    /* PMem DEVDAX mapping requires root */
+    if (geteuid()) {
+        BOOST_LOG_TRIVIAL(fatal) << "Not running as root!";
+        exit(EXIT_FAILURE);
+    }
 
     /* test config file */
     if (config_path.empty()) {
