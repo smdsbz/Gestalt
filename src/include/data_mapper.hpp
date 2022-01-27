@@ -13,6 +13,7 @@
 
 #include <string>
 #include <vector>
+#include <sstream>
 
 #include "spec/dataslot.hpp"
 
@@ -26,8 +27,8 @@ class Client;
 
 
 class DataMapper {
-    friend class gestalt::Client;
     Client *client;
+    friend class gestalt::Client;
 
     struct server_node {
         /**
@@ -85,6 +86,37 @@ public:
      * is wrong.
      */
     acting_set map(const string &k, unsigned r);
+
+    inline string dump_clustermap() const
+    {
+        ostringstream os;
+        os << "[";
+        for (unsigned i = 0; i < server_list.size(); ++i) {
+            const auto &s = server_list[i];
+            os << "Server("
+                << "id=" << i << ", ";
+            os << "status=";
+            switch (s.status) {
+            case server_node::Status::in:
+                os << "in";
+                break;
+            case server_node::Status::out:
+                os << "out";
+                break;
+            case server_node::Status::up:
+                os << "up";
+                break;
+            default:
+                os << "unknown";
+                break;
+            }
+            os << ", ";
+            os << "addr=" << s.addr
+                << "), ";
+        }
+        os << "]";
+        return os.str();
+    }
 
 };  /* class DataMapper */
 

@@ -22,23 +22,27 @@ using namespace std;
 
 DataMapper::DataMapper(Client *_c) : client(_c)
 {
-    auto chan = grpc::CreateChannel(
-        client->config.get_child("global.monitor_address").get_value<string>(),
-        grpc::InsecureChannelCredentials());
-    auto stub = gestalt::rpc::ClusterMap::NewStub(chan);
-    grpc::ClientContext ctx;
     gestalt::rpc::ServerList out;
-    if (auto r = stub->GetServers(&ctx, {}, &out); !r.ok())
-        boost_log_errno_throw(GetServers);
+    {
+        auto chan = grpc::CreateChannel(
+            client->config.get_child("global.monitor_address").get_value<string>(),
+            grpc::InsecureChannelCredentials());
+        auto stub = gestalt::rpc::ClusterMap::NewStub(chan);
+        grpc::ClientContext ctx;
+        if (auto r = stub->GetServers(&ctx, {}, &out); !r.ok())
+            boost_log_errno_throw(GetServers);
+    }
+    BOOST_LOG_TRIVIAL(info) << "fetched server list from monitor";
 
     const auto &servers = out.servers();
     server_list.resize(servers.size());
     for (const auto &s : servers) {
         if (s.id() >= server_list.size())
             server_list.resize(s.id() + 1);
-        server_list[s.id()] = server_node();
+        server_list[s.id()] = server_node(s.addr());
     }
 }
+
 
 DataMapper::acting_set DataMapper::map(const string &k, unsigned r)
 {

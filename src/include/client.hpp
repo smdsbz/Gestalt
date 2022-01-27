@@ -83,6 +83,13 @@ public:
     // TODO: bufferlist
     // void read()
 
+    /* debug interface */
+public:
+    inline string dump_clustermap() const
+    {
+        return node_mapper.dump_clustermap();
+    }
+
 };  /* class Client */
 
 }   /* namespace gestalt */

@@ -1,18 +1,16 @@
 /**
- * @file
+ * @file dev_client.cpp
  *
- * Server process
+ * used for debugging only
  */
 
 #include <filesystem>
-#include <unistd.h>
 
-#include <boost/log/trivial.hpp>
 #include "common/boost_log_helper.hpp"
 #include <boost/program_options.hpp>
 
 #include "defaults.hpp"
-#include "./server.hpp"
+#include "client.hpp"
 
 using namespace std;
 
@@ -20,12 +18,9 @@ using namespace std;
 int main(const int argc, const char **argv)
 {
     /* process arguments */
-
-    filesystem::path config_path;   // path to config file
-    string log_level;               // Boost log level
-    unsigned server_id = 0;         // specified server ID
-    string server_addr;             // specified server address
-    filesystem::path dax_path;      // path to devdax
+    filesystem::path config_path;
+    string log_level;
+    unsigned client_id = 0;     // global unique
 
     {
         namespace po = boost::program_options;
@@ -37,10 +32,7 @@ int main(const int argc, const char **argv)
                 "./etc/gestalt/gestalt.conf, whichever comes first.")
             ("log", po::value(&log_level)->default_value("info"),
                 "Logging level (Boost).")
-            ("id", po::value(&server_id), "specify server ID")
-            ("addr", po::value(&server_addr)->required(), "specify server address")
-            ("dax-dev", po::value(&dax_path)->required(),
-                "Path to DEVDAX device.")
+            ("id", po::value(&client_id), "specify client ID")
             ;
         po::variables_map vm;
         po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -49,13 +41,6 @@ int main(const int argc, const char **argv)
 
     set_boost_log_level(log_level);
 
-    /* PMem DEVDAX mapping requires root */
-    if (geteuid()) {
-        BOOST_LOG_TRIVIAL(fatal) << "Not running as root!";
-        exit(EXIT_FAILURE);
-    }
-
-    /* test config file */
     if (config_path.empty()) {
         for (auto &p : gestalt::defaults::config_paths) {
             if (!filesystem::is_regular_file(p))
@@ -69,15 +54,11 @@ int main(const int argc, const char **argv)
         exit(EXIT_FAILURE);
     }
 
+    /* setup client */
+    gestalt::Client client(config_path);
+    BOOST_LOG_TRIVIAL(info) << "client successfully setup";
+    BOOST_LOG_TRIVIAL(info) << "cluster map: " << client.dump_clustermap();
 
-    /* run server */
-    auto server_runtime = gestalt::Server::create(
-        config_path, server_id, server_addr, dax_path);
-    BOOST_LOG_TRIVIAL(info) << "Server runtime successfully created!";
-
-    /* TODO: register stop() to SIGINT */
-
-    server_runtime->run();
 
     return 0;
 }
