@@ -76,12 +76,12 @@ unique_ptr<Server> Server::create(
     void *pmem_space;
     size_t pmem_size;
     {
-        // if (!filesystem::is_character_file(dax_path)) {
-        //     ostringstream what;
-        //     what << "Cannot map DEVDAX at " << dax_path;
-        //     BOOST_LOG_TRIVIAL(fatal) << what.str();
-        //     throw std::runtime_error(what.str());
-        // }
+        if (!filesystem::is_character_file(dax_path)) {
+            ostringstream what;
+            what << "Cannot map DEVDAX at " << dax_path;
+            BOOST_LOG_TRIVIAL(fatal) << what.str();
+            throw std::runtime_error(what.str());
+        }
         pmem_space = pmem_map_file(
             dax_path.c_str(), /*length=entire file*/0, /*flag*/0, /*mode*/0,
             &pmem_size, NULL);
@@ -173,7 +173,10 @@ Server::Server(
     addr(_addr), rnic_name(_rnic), listen_id(std::move(_listen_id)),
     ddio_guard(misc::ddio::scope_guard::from_rnic(rnic_name.c_str())),
     is_stopping(false)
-{ }
+{
+    BOOST_LOG_TRIVIAL(info) << "cleaning storage, this may take a while ...";
+    storage.clear();
+}
 
 Server::~Server()
 {

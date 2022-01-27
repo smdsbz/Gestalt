@@ -26,16 +26,18 @@ service ClusterMap {
     /**
      * Update heartbeat of source server
      *
-     * NOTE: we won't bother implementing HA for now
+     * @note we won't bother implementing HA for now
      */
     //rpc Heartbeat(google.protobuf.Empty) returns (google.protobuf.Empty) {}
 }
 
+/** @note we don't support HA for now, the cluster configuration is static */
+//service ClusterMapListener { }
 
 /** server properties */
 message ServerProp {
     /** server unique ID */
-    uint32 id = 1;      // server unique ID
+    uint32 id = 1;
     /** server's IP address */
     string addr = 2;
 }

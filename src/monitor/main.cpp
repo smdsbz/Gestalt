@@ -59,6 +59,8 @@ public:
     {
         std::scoped_lock l(_mutex);
 
+        BOOST_LOG_TRIVIAL(info) << "AddServer request from peer " << ctx->peer();
+
         unsigned new_id;
         /* forcing an ID */
         if (new_id = in->id(); new_id) {

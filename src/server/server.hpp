@@ -1,5 +1,9 @@
 /**
  * @file server.hpp
+ *
+ * @note This build is only meant for performance benchmarking, all HA features
+ * are not implemented, and there is only one bucket (key space) that maps to the
+ * entire mapped PMem.
  */
 
 #pragma once
@@ -105,7 +109,7 @@ class Server final : boost::noncopyable {
             ep(std::move(o.ep)), mr(std::move(o.mr))
         { }
     };
-    /** client unique ID -> accepted connection endpoint */
+    /** client ID -> accepted connection endpoint */
     unordered_map<unsigned, client_prop_t> connected_client_id;
 
     /* runtime */

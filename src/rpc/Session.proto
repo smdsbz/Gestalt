@@ -21,7 +21,7 @@ service Session {
      * 4. write MR to stream
      * 5. add connected client property to server runtime
      *
-     * @param id client ID
+     * @param ctx->peer() client identifier
      * @return addr, length, rkey - RDPMA fields
      * @throw ALREADY_EXISTS
      */
@@ -29,7 +29,7 @@ service Session {
 
     /**
      * Disconnect this client from server
-     * @param id client ID
+     * @param ctx->peer() client identifier
      */
     rpc Disconnect(ClientProp) returns (google.protobuf.Empty) {}
 }
@@ -38,6 +38,12 @@ service Session {
 message ClientProp {
     /** client unique ID */
     uint32 id = 1;
+    /**
+     * name of the bucket that this client connection intends to use
+     * @note we don't support bucket interface for now, one bucket is sufficient
+     * for running performance benchmarks
+     */
+    //string using = 2;
 }
 
 /** required fields operating RDMA memory region */

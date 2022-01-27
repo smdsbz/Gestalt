@@ -25,9 +25,8 @@ Status SessionServicer::Connect(ServerContext *ctx,
     auto &connected_clients = server->connected_client_id;
 
     /* reject re-connect */
-    if (connected_clients.contains(in->id())) {
-        BOOST_LOG_TRIVIAL(warning) << "client " << in->id()
-            << " already exists, ignoring";
+    if (in->id() && connected_clients.contains(in->id())) {
+        BOOST_LOG_TRIVIAL(warning) << "client " << in->id() << " already exists, ignoring";
         return Status(StatusCode::ALREADY_EXISTS, "client already connected");
     }
 
@@ -62,11 +61,11 @@ Status SessionServicer::Connect(ServerContext *ctx,
     /* client connection now initialized, add it to server runtime registry */
     {
         gestalt::Server::client_prop_t cp(std::move(connected_id), std::move(mr));
-        std::remove_reference_t<decltype(connected_clients)>::value_type
-            v(in->id(), std::move(cp));
+        std::remove_reference_t<decltype(connected_clients)>::value_type v(in->id(), std::move(cp));
         connected_clients.insert(std::move(v));
     }
 
+    BOOST_LOG_TRIVIAL(info) << "client @ " << in->id() << " connected";
     return Status::OK;
 }
 
@@ -88,6 +87,7 @@ Status SessionServicer::Disconnect(ServerContext *ctx,
 
     connected_clients.erase(client_it);
 
+    BOOST_LOG_TRIVIAL(info) << "client @ " << in->id() << " disconnected";
     return Status::OK;
 }
 

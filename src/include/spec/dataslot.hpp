@@ -408,3 +408,12 @@ static_assert(std::is_standard_layout_v<dataslot>);
 static_assert((sizeof(dataslot) % 512_B) == 0);
 
 }   /* namespace gestalt */
+
+
+template<>
+struct std::hash<gestalt::dataslot::key_type> {
+    inline std::size_t operator()(const gestalt::dataslot::key_type &k)
+    {
+        return k.hash();
+    }
+};

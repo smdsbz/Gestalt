@@ -8,3 +8,4 @@ add_subdirectory(rpc)
 
 add_subdirectory(monitor)
 add_subdirectory(server)
+add_subdirectory(client)
