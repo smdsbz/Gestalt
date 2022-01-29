@@ -118,6 +118,16 @@ class Server final : boost::noncopyable {
     atomic<bool> is_stopping;
     mutex _mutex;
 
+    struct bucket_descriptor {
+        uintptr_t addr;
+        size_t length;
+    };
+    /**
+     * buckets that this server is responsible for
+     * @todo currently we only have one big bucket, so this is not used.
+     */
+    unordered_map<string, bucket_descriptor> buckets;
+
     /* con/destructors */
 public:
     /**

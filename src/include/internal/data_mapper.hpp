@@ -13,6 +13,7 @@
 
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <sstream>
 
 #include "spec/dataslot.hpp"
@@ -24,6 +25,7 @@ using namespace std;
 
 using okey = dataslot::key_type;
 class Client;
+class RDMAConnectionPool;
 
 
 class DataMapper {
@@ -46,19 +48,22 @@ class DataMapper {
             status(Status::up), addr(_addr)
         { }
         server_node(const server_node &other) = default;
+        server_node &operator=(const server_node &other) = default;
     };
+    /** map of candicate servers for `client`'s bucket, server ID -> property */
+    unordered_map<unsigned, server_node> server_map;
     /**
-     * pool of servers, with index being server ID
-     * @note [0] is always out, since 0 is an invalid server ID
+     * rank of server, same of that calculated and returned by monitor on a
+     * given bucket
+     * @note we actually only have one bucket now
      */
-    vector<server_node> server_list;
+    vector<unsigned> server_rank;
 public:
     /**
-     * type of DataMapper calculated output, where elements are internal indices
-     * to `server_list`
+     * type of DataMapper calculated output, which is just an array of server ID
      */
     using acting_set = vector<unsigned>;
-    // friend class gestalt::RDMAConnectionPool;
+    friend class gestalt::RDMAConnectionPool;
 
     /* con/dtors */
 public:
@@ -85,16 +90,18 @@ public:
      * @return ordered acting set of size `r`, if smaller than `r` then something
      * is wrong.
      */
-    acting_set map(const string &k, unsigned r);
+    acting_set map(const string &k, unsigned r) const;
+    void mark_out(unsigned id);
 
     inline string dump_clustermap() const
     {
         ostringstream os;
         os << "[";
-        for (unsigned i = 0; i < server_list.size(); ++i) {
-            const auto &s = server_list[i];
+        for (unsigned r = 0; r < server_rank.size(); ++r) {
+            const auto id = server_rank[r];
+            const auto &s = server_map.at(id);
             os << "Server("
-                << "id=" << i << ", ";
+                << "id=" << id << ", ";
             os << "status=";
             switch (s.status) {
             case server_node::Status::in:

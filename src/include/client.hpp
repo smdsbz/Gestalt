@@ -14,7 +14,10 @@
 #include <boost/noncopyable.hpp>
 
 #include "spec/dataslot.hpp"
-#include "data_mapper.hpp"
+#include "internal/data_mapper.hpp"
+#include "internal/rdma_connection_pool.hpp"
+#include "common/lru_cache.hpp"
+#include "defaults.hpp"
 
 
 namespace gestalt {
@@ -23,7 +26,7 @@ using namespace std;
 
 using okey = dataslot::key_type;
 class DataMapper;
-class RDMAConnectionPool {};
+class RDMAConnectionPool;
 
 
 /**
@@ -42,13 +45,14 @@ class Client final : boost::noncopyable {
 
     /* cluster */
 
+    /** maps from okey to server nodes in cluster */
     DataMapper node_mapper;
     friend class DataMapper;
 
     /* RDMA sessions */
 
-    /** TODO: pooled RDMA connection */
-    RDMAConnectionPool fibers;
+    /** pooled RDMA connection */
+    RDMAConnectionPool session_pool;
     friend class RDMAConnectionPool;
 
     /* misc */
@@ -72,7 +76,7 @@ class Client final : boost::noncopyable {
      * caches redirected location of objects that are not stored at their default
      * calculated location
      */
-    unordered_map<okey, cluster_physical_addr> abnormal_placements;
+    LRUCache<okey, cluster_physical_addr> abnormal_placements;
 
     /* con/dtors */
 public:

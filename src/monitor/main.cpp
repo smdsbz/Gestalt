@@ -167,6 +167,10 @@ int main(const int argc, const char **argv)
     grpc_builder.AddListeningPort(clustermap_server_port, grpc::InsecureServerCredentials());
     grpc_builder.RegisterService(&clustermap_svc);
     auto clustermap_grpc_server = grpc_builder.BuildAndStart();
+    if (!clustermap_grpc_server) {
+        BOOST_LOG_TRIVIAL(fatal) << "RPC server failed to start";
+        throw std::runtime_error("RPC server failed to start");
+    }
     BOOST_LOG_TRIVIAL(info) << "ClusterMap service started on " << clustermap_server_port;
 
     clustermap_grpc_server->Wait();

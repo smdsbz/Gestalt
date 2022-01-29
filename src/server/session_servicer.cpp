@@ -4,6 +4,8 @@
 
 #include <sstream>
 #include <type_traits>
+#include <arpa/inet.h>
+#include <iomanip>
 
 #include "common/boost_log_helper.hpp"
 
@@ -20,36 +22,46 @@ using namespace std;
 Status SessionServicer::Connect(ServerContext *ctx,
     const ClientProp *in, ServerWriter<MemoryRegion> *out)
 {
+    BOOST_LOG_TRIVIAL(trace) << "RPC Session::Connect() invoked";
     std::scoped_lock l(server->_mutex);
 
     auto &connected_clients = server->connected_client_id;
 
     /* reject re-connect */
-    if (in->id() && connected_clients.contains(in->id())) {
+    if (connected_clients.contains(in->id())) {
         BOOST_LOG_TRIVIAL(warning) << "client " << in->id() << " already exists, ignoring";
         return Status(StatusCode::ALREADY_EXISTS, "client already connected");
     }
 
-    /* accept connection */
+    /* 2. accept connection */
     rdma_cm_id *raw_connected_id;
     if (rdma_get_request(server->listen_id.get(), &raw_connected_id))
-        boost_log_errno_throw(rdma_get_request);
+        boost_log_errno_grpc_return(rdma_get_request);
     unique_ptr<rdma_cm_id, gestalt::Server::__RdmaConnDeleter> connected_id(raw_connected_id);
     /* CMBK: client should be issuing rdma_connect(). For a proof-of-concept
         implementation, we wait indefinitely */
     if (rdma_accept(connected_id.get(), NULL))
-        boost_log_errno_throw(rdma_accept);
+        boost_log_errno_grpc_return(rdma_accept);
+    BOOST_LOG_TRIVIAL(trace) << "accepted RDMA connection from "
+        << inet_ntoa(connected_id->route.addr.dst_sin.sin_addr)
+        << ":" << connected_id->route.addr.dst_sin.sin_port
+        << ", with local port "
+        << inet_ntoa(connected_id->route.addr.src_sin.sin_addr)
+        << ":" << connected_id->route.addr.src_sin.sin_port;
 
-    /* register MR */
+    /* 3. register MR */
+    BOOST_LOG_TRIVIAL(trace) << "ibv_reg_mr(): "
+        << std::hex << server->managed_pmem.buffer
+        << std::dec << " of " << server->managed_pmem.size << " bytes";
     ibv_mr *raw_mr = ibv_reg_mr(connected_id->pd,
         server->managed_pmem.buffer, server->managed_pmem.size,
         IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ |
         IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC);
     if (!raw_mr)
-        boost_log_errno_throw(ibv_reg_mr);
+        boost_log_errno_grpc_return(ibv_reg_mr);
     unique_ptr<ibv_mr, gestalt::Server::__IbvMrDeleter> mr(raw_mr);
 
-    /* write MR fields to stream */
+    /* 4. write MR fields to stream */
     {
         MemoryRegion o;
         o.set_addr(reinterpret_cast<uintptr_t>(mr->addr));
@@ -58,12 +70,11 @@ Status SessionServicer::Connect(ServerContext *ctx,
         out->Write(o);
     }
 
-    /* client connection now initialized, add it to server runtime registry */
-    {
-        gestalt::Server::client_prop_t cp(std::move(connected_id), std::move(mr));
-        std::remove_reference_t<decltype(connected_clients)>::value_type v(in->id(), std::move(cp));
-        connected_clients.insert(std::move(v));
-    }
+    /* 5. client connection now initialized, add it to server runtime registry */
+    connected_clients.insert({
+        in->id(),
+        gestalt::Server::client_prop_t(std::move(connected_id), std::move(mr))
+    });
 
     BOOST_LOG_TRIVIAL(info) << "client @ " << in->id() << " connected";
     return Status::OK;

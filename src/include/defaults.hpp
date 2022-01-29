@@ -21,5 +21,7 @@ const vector<filesystem::path> config_paths{
     "../../etc/gestalt/gestalt.conf",
 };
 
+constexpr size_t client_redirection_cache_size = 1e4;
+
 }   /* namespace defaults */
 }   /* namespace gestalt */

@@ -120,7 +120,7 @@ unique_ptr<Server> Server::create(
     /* start RDMA CM */
     rdma_cm_id *raw_listen_id;
     {
-        unsigned port = config.get_child("server.port").get_value<unsigned>();
+        unsigned port = config.get_child("server.rdma_port").get_value<unsigned>();
         rdma_addrinfo
             hint{.ai_flags = RAI_PASSIVE, .ai_port_space = RDMA_PS_TCP},
             *info;
@@ -204,16 +204,25 @@ void Server::run()
     {
         ostringstream port;
         port << this->addr << ":"
-            << config.get_child("server.port").get_value<unsigned>();
+            << config.get_child("server.rpc_port").get_value<unsigned>();
         grpc_builder.AddListeningPort(port.str(), grpc::InsecureServerCredentials());
+        BOOST_LOG_TRIVIAL(info) << "starting RPC server on " << port.str();
     }
     grpc_builder.RegisterService(&session_svc);
     auto session_grpc_server = grpc_builder.BuildAndStart();
+    if (!session_grpc_server) {
+        BOOST_LOG_TRIVIAL(fatal) << "RPC server failed to start";
+        throw std::runtime_error("RPC server failed to start");
+    }
+
+    BOOST_LOG_TRIVIAL(info) << "Server up and running!";
 
     while (is_stopping.load() == false) {
         std::this_thread::sleep_for(1s);
     }
     session_grpc_server->Wait();
+
+    BOOST_LOG_TRIVIAL(info) << "Server stopped!";
 }
 
 void Server::stop()

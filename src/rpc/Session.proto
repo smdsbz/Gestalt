@@ -13,6 +13,7 @@ service Session {
      * 2. initiate rdma_connect()
      * 3. wait for server return MR
      * 4. finish
+     * 5. add connection to client runtime
      *
      * __Steps - server__
      * 1. triggered, entering handler

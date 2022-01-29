@@ -12,7 +12,7 @@
 #include "ClusterMap.grpc.pb.h"
 
 #include "client.hpp"
-#include "./data_mapper.hpp"
+#include "internal/data_mapper.hpp"
 
 
 namespace gestalt {
@@ -29,33 +29,43 @@ DataMapper::DataMapper(Client *_c) : client(_c)
             grpc::InsecureChannelCredentials());
         auto stub = gestalt::rpc::ClusterMap::NewStub(chan);
         grpc::ClientContext ctx;
+        /**
+         * TODO: should be getting only servers responsible for bucket opened by
+         * this client, however in the benchmark setup we only have one big
+         * bucket that takes all PMem space, so for now we get all servers in
+         * the cluster.
+         */
         if (auto r = stub->GetServers(&ctx, {}, &out); !r.ok())
             boost_log_errno_throw(GetServers);
     }
-    BOOST_LOG_TRIVIAL(info) << "fetched server list from monitor";
+    BOOST_LOG_TRIVIAL(debug) << "fetched server list from monitor";
 
     const auto &servers = out.servers();
-    server_list.resize(servers.size());
+    server_rank.reserve(servers.size());
     for (const auto &s : servers) {
-        if (s.id() >= server_list.size())
-            server_list.resize(s.id() + 1);
-        server_list[s.id()] = server_node(s.addr());
+        server_rank.push_back(s.id());
+        server_map.insert({s.id(), {s.addr()}});
     }
 }
 
-
-DataMapper::acting_set DataMapper::map(const string &k, unsigned r)
+DataMapper::acting_set DataMapper::map(const string &k, unsigned r) const
 {
-    unsigned base = okey::hash(k) % server_list.size();
+    unsigned base = okey::hash(k) % server_rank.size();
     acting_set out;
-    for (unsigned off = 0; off < server_list.size() && out.size() < r; ++off) {
-        unsigned i;
-        [[likely]] i = (off + base) % server_list.size();
-        if (server_list[i].status != server_node::Status::up)
+    for (unsigned off = 0; off < server_rank.size() && out.size() < r; ++off) {
+        unsigned rank;
+        [[likely]] rank = (off + base) % server_rank.size();
+        unsigned id = server_rank[rank];
+        if (server_map.at(id).status != server_node::Status::up)
             [[unlikely]] continue;
-        out.push_back(i);
+        out.push_back(id);
     }
     return out;
+}
+
+void DataMapper::mark_out(unsigned id)
+{
+    server_map[id].status = server_node::Status::out;
 }
 
 }   /* namespace gestalt */

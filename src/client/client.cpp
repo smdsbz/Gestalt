@@ -8,7 +8,7 @@
 #include "common/boost_log_helper.hpp"
 
 #include "client.hpp"
-#include "./data_mapper.hpp"
+#include "internal/data_mapper.hpp"
 
 
 namespace gestalt {
@@ -17,7 +17,9 @@ using namespace std;
 
 
 Client::Client(const filesystem::path &config_path) :
-    node_mapper(), fibers()
+    id(/*TODO: random generate, or allocated by monitor*/114514),
+    node_mapper(), session_pool(),
+    abnormal_placements(gestalt::defaults::client_redirection_cache_size)
 {
     {
         ifstream f(config_path);
@@ -25,6 +27,10 @@ Client::Client(const filesystem::path &config_path) :
     }
 
     node_mapper = DataMapper(this);
+    BOOST_LOG_TRIVIAL(debug) << "DataMapper initialized: "
+        << node_mapper.dump_clustermap();
+
+    session_pool = RDMAConnectionPool(this);
 
     // TODO:
 }

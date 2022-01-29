@@ -13,6 +13,9 @@
 #include <boost/log/trivial.hpp>
 #include <boost/log/expressions.hpp>
 
+#include <grpcpp/impl/codegen/status.h>
+#include <grpcpp/impl/codegen/status_code_enum.h>
+
 
 #define __set_log_level(lv)                                                 \
 do {                                                                        \
@@ -53,4 +56,12 @@ do {                                                                        \
     what << #fn << "(): " << std::strerror(errno);                          \
     BOOST_LOG_TRIVIAL(error) << what.str();                                 \
     throw std::runtime_error(what.str());                                   \
+} while (0)
+
+#define boost_log_errno_grpc_return(fn)                                     \
+do {                                                                        \
+    std::ostringstream what;                                                \
+    what << #fn << "(): " << std::strerror(errno);                          \
+    BOOST_LOG_TRIVIAL(error) << what.str();                                 \
+    return grpc::Status(grpc::StatusCode::INTERNAL, what.str());            \
 } while (0)

@@ -108,14 +108,14 @@ private:
     struct iterator {
         Self *_ht;
         size_t _i;  ///< current index
-        explicit iterator(Self *ht) noexcept : _ht(ht), _i(ht->max_size()) {}
+        explicit iterator(Self *ht) noexcept : _ht(ht), _i(ht->capacity()) {}
         /**
          *  @throw std::out_of_range
          *  @throw std::runtime_error pointing to invalid entry
          */
         entry_type &operator*()
         {
-            if (_i >= _ht->max_size())
+            if (_i >= _ht->capacity())
                 throw std::out_of_range("iterating out of table");
             auto &e = _ht->_d[_i];
             if (e.is_invalid())
@@ -124,9 +124,9 @@ private:
         }
         void operator++()
         {
-            if (_i >= _ht->max_size())
+            if (_i >= _ht->capacity())
                 throw std::out_of_range("iterating out of table");
-            for (++_i; _i < _ht->max_size() && _ht->_d[_i].is_invalid(); ++_i) ;
+            for (++_i; _i < _ht->capacity() && _ht->_d[_i].is_invalid(); ++_i) ;
         }
         inline bool operator==(const iterator &that) const
         {
@@ -157,7 +157,7 @@ public:
     /**
      *  @return underlying size
      */
-    inline size_t max_size() const noexcept
+    inline size_t capacity() const noexcept
     {
         return _capacity;
     }
@@ -214,7 +214,7 @@ public:
         entry_type *first_avail = nullptr;
         /* linear search */
         for (size_t off = 0; off < _max_search; ++off) {
-            auto &e = _d[(b + off) % max_size()];
+            auto &e = _d[(b + off) % capacity()];
             if (first_avail == nullptr && e.is_invalid())
                 first_avail = &e;
             if (e.is_valid() && e.key() == k)
@@ -255,7 +255,7 @@ public:
     {
         const size_t b = k.hash();
         for (size_t off = 0; off < _max_search; ++off) {
-            const auto &e = _d[(b + off) % max_size()];
+            const auto &e = _d[(b + off) % capacity()];
             if (e.is_valid() && e.key() == k)
                 return off;
         }

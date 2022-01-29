@@ -57,7 +57,6 @@ int main(const int argc, const char **argv)
     /* setup client */
     gestalt::Client client(config_path);
     BOOST_LOG_TRIVIAL(info) << "client successfully setup";
-    BOOST_LOG_TRIVIAL(info) << "cluster map: " << client.dump_clustermap();
 
 
     return 0;
