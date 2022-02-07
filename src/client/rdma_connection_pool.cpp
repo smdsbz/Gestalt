@@ -78,7 +78,6 @@ RDMAConnectionPool::RDMAConnectionPool(Client *_c) : client(_c)
             };
             if (rdma_create_ep(&raw_conn, addrinfo, NULL, &init_attr))
                 boost_log_errno_throw(rdma_create_ep);
-            // DEBUG: got stuck here!
             if (rdma_connect(raw_conn, NULL)) {
                 BOOST_LOG_TRIVIAL(warning) << "Cannot connect to server "
                     << server_id << " @ " << s.addr << ", marking it out";
@@ -114,7 +113,19 @@ RDMAConnectionPool::RDMAConnectionPool(Client *_c) : client(_c)
 
         /* 5. add connection property to runtime */
         pool.insert({server_id, std::move(mr)});
+        BOOST_LOG_TRIVIAL(trace) << "inserted server " << server_id << " to"
+            " connection pool";
     }
+}
+
+
+RDMAConnectionPool::memory_region::~memory_region()
+{
+    // TODO: disconnect
+    BOOST_LOG_TRIVIAL(trace) << "RDMA disconnecting from "
+        << inet_ntoa(conn->route.addr.dst_sin.sin_addr);
+
+
 }
 
 }   /* namespace gestalt */

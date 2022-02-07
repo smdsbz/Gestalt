@@ -37,7 +37,7 @@ class SessionServicer;
 /**
  * Server runtime
  */
-class Server final : boost::noncopyable {
+class Server final : private boost::noncopyable {
 
     /* cluster runtime */
 
@@ -51,16 +51,20 @@ class Server final : boost::noncopyable {
     /* storage management */
 
     /** managed PMem space, supplied to storage */
-    struct managed_pmem_t : boost::noncopyable {
+    struct managed_pmem_t : private boost::noncopyable {
         void* buffer;
         size_t size;
     public:
         managed_pmem_t(void *_b, size_t _s) noexcept : buffer(_b), size(_s)
         { }
         managed_pmem_t(managed_pmem_t &&o) noexcept : buffer(o.buffer), size(o.size)
-        { }
+        {
+            o.buffer = nullptr;
+        }
         ~managed_pmem_t()
         {
+            if (!buffer)
+                return;
             pmem_unmap(buffer, size);
         }
     } managed_pmem;
@@ -71,17 +75,49 @@ class Server final : boost::noncopyable {
 
     /** server network (both RPC and RDMA) interface */
     const boost::asio::ip::address addr;
-    /** name of the RNIC to use, currently this is not verified! */
-    const string rnic_name;
-
-    struct __RdmaEpDeleter {
+    /** global libibverbs context, i.e. list of devices */
+    struct managed_ibvctx_t : private boost::noncopyable {
+        /** null-terminated array */
+        ibv_context **devices;
+        ibv_context *chosen;
+    public:
+        managed_ibvctx_t(ibv_context **_devs) noexcept :
+            devices(_devs), chosen(NULL)
+        { }
+        managed_ibvctx_t(managed_ibvctx_t &&o) noexcept :
+            devices(o.devices), chosen(o.chosen)
+        {
+            o.devices = NULL;
+        }
+        ~managed_ibvctx_t()
+        {
+            if (!devices)
+                return;
+            rdma_free_devices(devices);
+        }
+    } ibvctx;
+    struct __IbvMrDeleter {
+        inline void operator()(ibv_mr *mr)
+        {
+            if (errno = ibv_dereg_mr(mr); errno)
+                boost_log_errno_throw(ibv_dereg_mr);
+        }
+    };
+    /** memory region registered to #ibvctx */
+    unique_ptr<ibv_mr, __IbvMrDeleter> ibvmr;
+    struct __RdmaListenEpDeleter {
         inline void operator()(rdma_cm_id *ep)
         {
+            if (errno = ibv_dealloc_pd(ep->pd); errno)
+                boost_log_errno_throw(ibv_dealloc_pd);
             rdma_destroy_ep(ep);
         }
     };
-    /** the RDMA endpoint listening for incoming RDMA connections */
-    unique_ptr<rdma_cm_id, __RdmaEpDeleter> listen_id;
+    /**
+     * the RDMA endpoint listening for incoming RDMA connections, should have
+     * an associated PD.
+     */
+    unique_ptr<rdma_cm_id, __RdmaListenEpDeleter> listen_id;
 
     struct __RdmaConnDeleter {
         inline void operator()(rdma_cm_id *ep)
@@ -91,22 +127,14 @@ class Server final : boost::noncopyable {
             rdma_destroy_ep(ep);
         }
     };
-    struct __IbvMrDeleter {
-        inline void operator()(ibv_mr *mr)
-        {
-            if (ibv_dereg_mr(mr))
-                boost_log_errno_throw(ibv_dereg_mr);
-        }
-    };
-    struct client_prop_t : boost::noncopyable {
+    struct client_prop_t : private boost::noncopyable {
         unique_ptr<rdma_cm_id, __RdmaConnDeleter> ep;
-        unique_ptr<ibv_mr, __IbvMrDeleter> mr;
     public:
-        client_prop_t(decltype(ep) &&_ep, decltype(mr) &&_mr) noexcept :
-            ep(std::move(_ep)), mr(std::move(_mr))
+        client_prop_t(decltype(ep) &&_ep) noexcept :
+            ep(std::move(_ep))
         { }
         client_prop_t(client_prop_t &&o) noexcept :
-            ep(std::move(o.ep)), mr(std::move(o.mr))
+            ep(std::move(o.ep))
         { }
     };
     /** client ID -> accepted connection endpoint */
@@ -151,7 +179,7 @@ public:
         const boost::property_tree::ptree &_cfg,
         managed_pmem_t &&_pmem,
         const boost::asio::ip::address &_addr,
-        const string &_rnic,
+        decltype(ibvctx) &&_ibvctx, decltype(ibvmr) &&_ibvmr,
         decltype(listen_id) &&_listen_id);
     ~Server();
 

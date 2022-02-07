@@ -26,14 +26,13 @@ int get_numa_node(const ibv_device *dev);
  * list, no load balancing algorithm is implemented.
  *
  * @param pmem_dev PMem system device name, e.g. "pmem1"
- * @param devices RNICs to choose from
- * @param num_devices length of `devices`
- * @return RNIC device struct, nullptr on no match
+ * @param devices RNICs to choose from, NULL-terminated
+ * @return RNIC context struct, nullptr on no match
  * @throw std::runtime_error no `pmem_dev` found in topology
  */
-ibv_device *choose_rnic_on_same_numa(
+ibv_context *choose_rnic_on_same_numa(
     const char *pmem_dev,
-    ibv_context **devices, size_t num_devices
+    ibv_context **devices
 );
 
 }   /* namespace numa */

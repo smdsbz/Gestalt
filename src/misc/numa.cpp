@@ -32,9 +32,9 @@ int get_numa_node(const ibv_device *dev)
     return numa_id;
 }
 
-ibv_device *choose_rnic_on_same_numa(
+ibv_context *choose_rnic_on_same_numa(
     const char *pmem_dev,
-    ibv_context **devices, size_t num_devices
+    ibv_context **devices
 ) {
     int numa = -1;
 
@@ -118,10 +118,10 @@ ibv_device *choose_rnic_on_same_numa(
     }
 
     /* iterate through RNIC devices */
-    for (int i = 0; i < num_devices; ++i) {
-        const auto &dev = devices[i]->device;
-        if (get_numa_node(dev) == numa)
-            return dev;
+    for (int i = 0; devices[i]; ++i) {
+        auto &ctx = devices[i];
+        if (get_numa_node(ctx->device) == numa)
+            return ctx;
     }
 
     return nullptr;

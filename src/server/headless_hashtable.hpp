@@ -22,6 +22,7 @@
 #include <concepts>
 #include <compare>
 #include <boost/core/noncopyable.hpp>
+#include "common/boost_log_helper.hpp"
 
 
 namespace gestalt {
@@ -168,8 +169,10 @@ public:
     {
         /* PERF: currently done via copying one-by-one, and implementation
             may override copy / assign behavior. */
-        for (size_t i = 0; i < _capacity; i++)
+        for (size_t i = 0; i < _capacity; i++) {
+            // BOOST_LOG_TRIVIAL(trace) << "invalidating slot " << i;
             _d[i].invalidate();
+        }
     }
 
     /**

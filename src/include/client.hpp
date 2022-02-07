@@ -36,7 +36,7 @@ class RDMAConnectionPool;
  * design, and tackling with inter-thread synchronization would hurt performance
  * in the common case.
  */
-class Client final : boost::noncopyable {
+class Client final : private boost::noncopyable {
 
     /* instance runtime */
 

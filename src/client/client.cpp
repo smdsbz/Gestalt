@@ -31,6 +31,7 @@ Client::Client(const filesystem::path &config_path) :
         << node_mapper.dump_clustermap();
 
     session_pool = RDMAConnectionPool(this);
+    BOOST_LOG_TRIVIAL(debug) << "RDMAConnectionPool initialized";
 
     // TODO:
 }

@@ -35,6 +35,16 @@ using namespace std::chrono_literals;
 namespace gestalt {
 using namespace std;
 
+namespace {
+struct __IbvPdDeleter {
+    inline void operator()(ibv_pd *pd)
+    {
+        if (errno = ibv_dealloc_pd(pd); errno)
+            boost_log_errno_throw(ibv_dealloc_pd);
+    }
+};
+}
+
 unique_ptr<Server> Server::create(
     const filesystem::path &config_path,
     unsigned id, const string &addr,
@@ -95,27 +105,39 @@ unique_ptr<Server> Server::create(
     managed_pmem_t managed_pmem(pmem_space, pmem_size);
 
     /* get RNIC */
-    /* TODO: don't know how to get RNIC name from IP address directly, so this
-        piece of code effectively does nothing */
-    string rnic_name;
+    /* TODO: don't know how to get RNIC name from IP address directly, for now
+        we just use whatever we got */
+    ibv_context **raw_devices, *rnic_chosen;
     {
-        int num_rnics;
-        auto rnics = rdma_get_devices(&num_rnics);
-        defer([&] { rdma_free_devices(rnics); });
-        if (!num_rnics) {
-            BOOST_LOG_TRIVIAL(fatal) << "No RNIC found";
-            throw std::runtime_error("No RNIC");
+        raw_devices = rdma_get_devices(NULL);
+        if (!raw_devices) {
+            BOOST_LOG_TRIVIAL(fatal) << "No RNIC found!";
+            throw std::runtime_error("no RNIC");
         }
-        auto chosen = gestalt::misc::numa::choose_rnic_on_same_numa(
-            dax_path.c_str(), rnics, num_rnics);
-        if (!chosen) {
+        rnic_chosen = gestalt::misc::numa::choose_rnic_on_same_numa(
+            dax_path.c_str(), raw_devices);
+        if (!rnic_chosen) {
             BOOST_LOG_TRIVIAL(warning) << "Cannot find a matching RNIC on the "
                 << "same NUMA as the DEVDAX, using the first RNIC listed "
                 << "instead!";
-            chosen = rnics[0]->device;
+            rnic_chosen = raw_devices[0];
         }
-        rnic_name = chosen->name;
     }
+    managed_ibvctx_t ibvctx(raw_devices);
+    ibvctx.chosen = rnic_chosen;
+
+    /* register memory region */
+    unique_ptr<ibv_pd, __IbvPdDeleter> pd(ibv_alloc_pd(ibvctx.chosen));
+    if (!pd)
+        boost_log_errno_throw(ibv_alloc_pd);
+    decltype(Server::ibvmr) ibvmr(ibv_reg_mr(
+        pd.get(),
+        managed_pmem.buffer, managed_pmem.size,
+        IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ |
+        IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC
+    ));
+    if (!ibvmr)
+        boost_log_errno_throw(ibv_reg_mr);
 
     /* start RDMA CM */
     rdma_cm_id *raw_listen_id;
@@ -141,7 +163,7 @@ unique_ptr<Server> Server::create(
             .qp_type = IBV_QPT_RC,
             .sq_sig_all = 0
         };
-        if (rdma_create_ep(&raw_listen_id, info, /*qp*/NULL, &init_attr)) {
+        if (rdma_create_ep(&raw_listen_id, info, pd.get(), &init_attr)) {
             ostringstream what;
             what << "rdma_create_ep() on " << addr << ":" << port << " failed: "
                 << std::strerror(errno);
@@ -150,11 +172,13 @@ unique_ptr<Server> Server::create(
         }
     }
     decltype(Server::listen_id) listen_id(raw_listen_id);
+    pd.release();
 
     return make_unique<Server>(
         id, config,
         std::move(managed_pmem),
-        boost::asio::ip::make_address(addr), rnic_name,
+        boost::asio::ip::make_address(addr),
+        std::move(ibvctx), std::move(ibvmr),
         std::move(listen_id)
     );
 }
@@ -164,18 +188,21 @@ Server::Server(
     const boost::property_tree::ptree &_cfg,
     managed_pmem_t &&_pmem,
     const boost::asio::ip::address &_addr,
-    const string &_rnic,
+    decltype(ibvctx) &&_ibvctx, decltype(ibvmr) &&_ibvmr,
     decltype(listen_id) &&_listen_id
 ) : id(_id), config(_cfg),
     managed_pmem(std::move(_pmem)),
     storage(static_cast<dataslot*>(managed_pmem.buffer),
             managed_pmem.size / sizeof(dataslot)),
-    addr(_addr), rnic_name(_rnic), listen_id(std::move(_listen_id)),
-    ddio_guard(misc::ddio::scope_guard::from_rnic(rnic_name.c_str())),
+    addr(_addr), ibvctx(std::move(_ibvctx)), ibvmr(std::move(_ibvmr)),
+    listen_id(std::move(_listen_id)),
+    ddio_guard(misc::ddio::scope_guard::from_rnic(ibvctx.chosen->device->name)),
     is_stopping(false)
 {
     BOOST_LOG_TRIVIAL(info) << "cleaning storage, this may take a while ...";
+    BOOST_LOG_TRIVIAL(debug) << "storage.capacity() = " << storage.capacity();
     storage.clear();
+    BOOST_LOG_TRIVIAL(info) << "Server successfully initialized!";
 }
 
 Server::~Server()

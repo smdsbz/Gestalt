@@ -78,15 +78,15 @@ int main(const int argc, const char **argv)
     if (!num_rnic_devices)
         throw std::runtime_error("get an RNIC first, dude");
     auto rnic_chosen = gestalt::misc::numa::choose_rnic_on_same_numa(
-        pmem_dev.c_str(), rnic_devices, num_rnic_devices);
+        pmem_dev.c_str(), rnic_devices);
     if (!rnic_chosen) {
         std::cerr << "cannot find a matching RNIC on the same NUMA, "
             << "default to the first RNIC listed!" << std::endl;
-        rnic_chosen = rnic_devices[0]->device;
+        rnic_chosen = rnic_devices[0];
     }
-    std::cout << "RNIC chosen is " << rnic_chosen->name << std::endl;
+    std::cout << "RNIC chosen is " << rnic_chosen->device->name << std::endl;
     /* RNIC DDIO configure */
-    auto ddio_guard(gestalt::misc::ddio::scope_guard::from_rnic(rnic_chosen->name));
+    auto ddio_guard(gestalt::misc::ddio::scope_guard::from_rnic(rnic_chosen->device->name));
 
     /* register PMem to RNIC to be RW-ready */
 

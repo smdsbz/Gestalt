@@ -67,13 +67,16 @@ public:
 
     /* con/dtors */
 public:
+    DataMapper() noexcept : client(nullptr)
+    { }
     /**
      * initializer, DataMapper is move-constructed
+     * @private
      * @param _c parent gestalt::Client
      */
     explicit DataMapper(Client *_c);
-    DataMapper() noexcept : client(nullptr)
-    { }
+    DataMapper(const DataMapper &) = delete;
+    DataMapper &operator=(const DataMapper &) = delete;
     DataMapper &operator=(DataMapper &&tmp) = default;
     ~DataMapper()
     { }

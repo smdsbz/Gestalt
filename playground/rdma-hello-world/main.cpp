@@ -166,6 +166,13 @@ BOOST_AUTO_TEST_CASE(rdma_hello_world_threaded) {
         };
         BOOST_REQUIRE(!rdma_create_ep(&server_id, addrinfo, NULL, &init_attr));
         defer(server_id, rdma_destroy_ep);
+        DVAR(server_id->verbs);
+        DVAR(server_id->send_cq); DVAR(server_id->recv_cq); DVAR(server_id->srq);
+        DVAR(server_id->qp); DVAR(server_id->qp_type);
+        // DVAR(server_id->qp->send_cq); DVAR(server_id->qp->recv_cq);
+        DVAR(server_id->pd);
+        // DVAR(server_id->pd->handle);
+        cout << endl;
 
         /* start server */
         BOOST_REQUIRE(!rdma_listen(server_id, 0));

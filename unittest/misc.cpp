@@ -40,12 +40,12 @@ BOOST_AUTO_TEST_CASE(test_choose_rnic_on_same_numa) {
     auto devices = rdma_get_devices(&num_devices);
     BOOST_REQUIRE(devices);
     defer([&]{ rdma_free_devices(devices); });
-    auto choice = choose_rnic_on_same_numa(PMEM_DEV, devices, num_devices);
+    auto choice = choose_rnic_on_same_numa(PMEM_DEV, devices);
     BOOST_TEST_REQUIRE(choice,
         "failed to choose RNIC for PMem device " << PMEM_DEV
         << ", this might be expected due to lack of actual RNIC hardware.");
     BOOST_LOG_TRIVIAL(info) << "test_choose_rnic_on_same_numa: "
-        << "chose " << choice->name << " for device " << PMEM_DEV;
+        << "chose " << choice->device->name << " for device " << PMEM_DEV;
 }
 
 

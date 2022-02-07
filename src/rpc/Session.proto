@@ -18,12 +18,11 @@ service Session {
      * __Steps - server__
      * 1. triggered, entering handler
      * 2. rdma_get_request() and rdma_accept()
-     * 3. register PMem space to accepted endpoint
-     * 4. write MR to stream
-     * 5. add connected client property to server runtime
+     * 3. write MR to stream
+     * 4. add connected client property to server runtime
      *
-     * @param ctx->peer() client identifier
-     * @return addr, length, rkey - RDPMA fields
+     * @param id
+     * @return addr, length, rkey - memory region
      * @throw ALREADY_EXISTS
      */
     rpc Connect(ClientProp) returns (stream MemoryRegion) {}

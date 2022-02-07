@@ -1,6 +1,6 @@
 include_directories(${PROJECT_BINARY_DIR})
-# set(playground_rnic_ip "10.0.2.15")
-set(playground_rnic_ip "192.168.2.246")
+set(playground_rnic_ip "10.0.2.15")
+# set(playground_rnic_ip "192.168.2.246")
 set(playground_rnic_port "11451")
 configure_file(include/playground/playground.h.in ${PROJECT_BINARY_DIR}/playground/playground.h)
 

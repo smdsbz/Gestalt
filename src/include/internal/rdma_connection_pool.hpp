@@ -34,8 +34,6 @@ class RDMAConnectionPool {
             if (rdma_disconnect(ep))
                 boost_log_errno_throw(rdma_disconnect);
             rdma_destroy_ep(ep);
-            BOOST_LOG_TRIVIAL(debug) << "RDMA disconnected from "
-                << inet_ntoa(ep->route.addr.dst_sin.sin_addr);
         }
     };
     struct memory_region {
@@ -47,7 +45,7 @@ class RDMAConnectionPool {
         /** RDMA connection */
         unique_ptr<rdma_cm_id, __RdmaConnDeleter> conn;
     public:
-        memory_region() noexcept : length(0)
+        memory_region() noexcept : length(0), conn(nullptr)
         { }
         memory_region(
                 uintptr_t _addr, size_t _len, uint32_t _rkey,
@@ -57,24 +55,23 @@ class RDMAConnectionPool {
         { }
         memory_region(memory_region &&tmp) = default;
         memory_region &operator=(memory_region &&tmp) = default;
-        ~memory_region()
-        {
-            BOOST_LOG_TRIVIAL(debug) << "RDMA disconnecting from "
-                << inet_ntoa(conn->route.addr.dst_sin.sin_addr);
-        }
+        ~memory_region();
     };
     /** session pool, server ID -> MR fields */
     unordered_map<unsigned, memory_region> pool;
 
     /* c/dtors */
 public:
+    RDMAConnectionPool() noexcept : client(nullptr)
+    { }
     /**
      * initializer, RDMAConnectionPool is move-constructed
+     * @private
      * @param _c 
      */
     explicit RDMAConnectionPool(Client *_c);
-    RDMAConnectionPool() noexcept : client(nullptr)
-    { }
+    RDMAConnectionPool(const RDMAConnectionPool &) = delete;
+    RDMAConnectionPool &operator=(const RDMAConnectionPool &) = delete;
     RDMAConnectionPool &operator=(RDMAConnectionPool &&tmp) = default;
     ~RDMAConnectionPool()
     { }

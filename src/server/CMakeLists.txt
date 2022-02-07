@@ -4,11 +4,11 @@ add_library(gestalt::headless_hashtable ALIAS ${TARGET})
 target_include_directories(${TARGET}
     INTERFACE
         ${CMAKE_CURRENT_SOURCE_DIR})
-find_package(Boost REQUIRED COMPONENTS headers)
-link_libraries(Boost::headers)
+find_package(Boost REQUIRED COMPONENTS headers log)
+link_libraries(Boost::headers Boost::log)
 target_link_libraries(${TARGET}
     INTERFACE
-        Boost::headers)
+        Boost::headers Boost::log)
 
 # server object as library
 set(TARGET gestaltserver)
