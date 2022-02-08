@@ -81,11 +81,13 @@ class Client final : private boost::noncopyable {
     /* con/dtors */
 public:
     Client(const filesystem::path &config_path);
+    /* for now we don't implement HA */
+    // void refresh_clustermap();
 
     /* I/O interface */
 public:
     // TODO: bufferlist
-    // void read()
+    // void read();
 
     /* debug interface */
 public:

@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <string>
+#include <sstream>
 #include <arpa/inet.h>
 
 #include "common/boost_log_helper.hpp"
@@ -107,25 +108,59 @@ RDMAConnectionPool::RDMAConnectionPool(Client *_c) : client(_c)
 
         /* 4. finish */
         if (auto r = reader->Finish(); !r.ok()) {
-            BOOST_LOG_TRIVIAL(error) << "failed to close Connect() RPC";
-            throw std::runtime_error("Connect()->Finish()");
+            auto what = string("closing RPC Connect(): ") + r.error_message();
+            BOOST_LOG_TRIVIAL(fatal) << what;
+            throw std::runtime_error(what);
         }
 
         /* 5. add connection property to runtime */
         pool.insert({server_id, std::move(mr)});
-        BOOST_LOG_TRIVIAL(trace) << "inserted server " << server_id << " to"
-            " connection pool";
+        BOOST_LOG_TRIVIAL(trace) << "inserted server " << server_id
+            << " to connection pool";
     }
 }
 
 
-RDMAConnectionPool::memory_region::~memory_region()
+RDMAConnectionPool::~RDMAConnectionPool() noexcept(false)
 {
-    // TODO: disconnect
-    BOOST_LOG_TRIVIAL(trace) << "RDMA disconnecting from "
-        << inet_ntoa(conn->route.addr.dst_sin.sin_addr);
+    const auto srv_rpc_port =
+        client->config.get_child("server.rpc_port").get_value<unsigned>();
+    grpc::CompletionQueue grpccq;
 
+    /* disconnect one-by-one */
+    for (auto mrit = pool.begin(); mrit != pool.end(); mrit = pool.begin()) {
+        const auto &[server_id, mr] = *mrit;
+        const auto &conn = mr.conn;
 
+        BOOST_LOG_TRIVIAL(trace) << "RDMA disconnecting from "
+            << inet_ntoa(conn->route.addr.dst_sin.sin_addr)
+            << ":" << conn->route.addr.dst_sin.sin_port;
+
+        auto chan = grpc::CreateChannel(
+            client->node_mapper.server_map.at(server_id).addr
+                + ":" + std::to_string(srv_rpc_port),
+            grpc::InsecureChannelCredentials());
+        auto stub = gestalt::rpc::Session::NewStub(chan);
+        grpc::ClientContext ctx;
+        gestalt::rpc::ClientProp in;
+        in.set_id(client->id);
+        google::protobuf::Empty out;
+        grpc::Status r;
+        stub->AsyncDisconnect(&ctx, in, &grpccq)
+            ->Finish(&out, &r, reinterpret_cast<void*>(server_id));
+
+        /* rdma_disconnect() at client side, invoked automatically with dtor */
+        pool.erase(mrit);
+        /* NOTE: sometimes it takes a while ... */
+
+        void *tag;
+        bool ok = false;
+        if (grpccq.Next(&tag, &ok); !ok) {
+            auto what = string("RPC Disconnect(): ") + r.error_message();
+            BOOST_LOG_TRIVIAL(fatal) << what;
+            throw std::runtime_error(what);
+        }
+    }
 }
 
 }   /* namespace gestalt */

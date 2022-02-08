@@ -53,18 +53,6 @@ Status SessionServicer::Connect(ServerContext *ctx,
         << inet_ntoa(connected_id->route.addr.src_sin.sin_addr)
         << ":" << connected_id->route.addr.src_sin.sin_port;
 
-    // /* 3. register MR */
-    // BOOST_LOG_TRIVIAL(trace) << "ibv_reg_mr(): "
-    //     << std::hex << server->managed_pmem.buffer
-    //     << std::dec << " of " << server->managed_pmem.size << " bytes";
-    // ibv_mr *raw_mr = ibv_reg_mr(connected_id->pd,
-    //     server->managed_pmem.buffer, server->managed_pmem.size,
-    //     IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ |
-    //     IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC);
-    // if (!raw_mr)
-    //     boost_log_errno_grpc_return(ibv_reg_mr);
-    // unique_ptr<ibv_mr, gestalt::Server::__IbvMrDeleter> mr(raw_mr);
-
     /* 3. write MR fields to stream */
     {
         MemoryRegion o;

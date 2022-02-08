@@ -35,8 +35,11 @@ DataMapper::DataMapper(Client *_c) : client(_c)
          * bucket that takes all PMem space, so for now we get all servers in
          * the cluster.
          */
-        if (auto r = stub->GetServers(&ctx, {}, &out); !r.ok())
-            boost_log_errno_throw(GetServers);
+        if (auto r = stub->GetServers(&ctx, {}, &out); !r.ok()) {
+            string what = string("RPC GetServers(): ") + r.error_message();
+            BOOST_LOG_TRIVIAL(fatal) << what;
+            throw std::runtime_error(what);
+        }
     }
     BOOST_LOG_TRIVIAL(debug) << "fetched server list from monitor";
 

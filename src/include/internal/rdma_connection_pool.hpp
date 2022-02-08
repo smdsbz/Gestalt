@@ -31,6 +31,7 @@ class RDMAConnectionPool {
     struct __RdmaConnDeleter {
         inline void operator()(rdma_cm_id *ep)
         {
+            // BOOST_LOG_TRIVIAL(trace) << "__RdmaConnDeleter";
             if (rdma_disconnect(ep))
                 boost_log_errno_throw(rdma_disconnect);
             rdma_destroy_ep(ep);
@@ -55,7 +56,8 @@ class RDMAConnectionPool {
         { }
         memory_region(memory_region &&tmp) = default;
         memory_region &operator=(memory_region &&tmp) = default;
-        ~memory_region();
+        ~memory_region()
+        { }
     };
     /** session pool, server ID -> MR fields */
     unordered_map<unsigned, memory_region> pool;
@@ -73,8 +75,7 @@ public:
     RDMAConnectionPool(const RDMAConnectionPool &) = delete;
     RDMAConnectionPool &operator=(const RDMAConnectionPool &) = delete;
     RDMAConnectionPool &operator=(RDMAConnectionPool &&tmp) = default;
-    ~RDMAConnectionPool()
-    { }
+    ~RDMAConnectionPool() noexcept(false);
 
     /* interface */
 public:
