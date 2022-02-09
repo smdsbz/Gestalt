@@ -9,11 +9,11 @@
 #include <memory>
 #include <arpa/inet.h>
 
-#include "common/boost_log_helper.hpp"
+#include "../common/boost_log_helper.hpp"
 
 #include <rdma/rdma_cma.h>
 
-#include "spec/dataslot.hpp"
+#include "../spec/dataslot.hpp"
 
 
 namespace gestalt {

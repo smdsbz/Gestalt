@@ -102,7 +102,7 @@ struct [[gnu::packed]] dataslot_meta {
          */
         key_type() noexcept
         {
-            _k[0] = '\0';
+            invalidate();
         }
         key_type(const char *k)
         {
@@ -168,12 +168,12 @@ struct [[gnu::packed]] dataslot_meta {
         lock    = 0b00000001,
         valid   = 0b10000000,
     };
-    union a {
+    union [[gnu::packed]] a {
         uint64_t u64;
         struct [[gnu::packed]] p {
             uint32_t key_crc = 0;
             uint8_t _[3] = {0};
-            atomic<bits_flag> bits = bits_flag::none;
+            bits_flag bits = bits_flag::none;
         public:
             constexpr p() noexcept = default;
         } m;
@@ -266,7 +266,7 @@ static_assert(sizeof(dataslot_meta) == 512_B);
  * Slot in headless hashtable, packages user data and inline metadata.
  *
  * User data is packed ahead of metadata, for lock bit must be at the end of the
- * slot (see @ref dataslot_meta ).
+ * slot (see gestalt::dataslot_meta ).
  */
 struct [[gnu::packed]] dataslot {
     using meta_type = dataslot_meta;
@@ -342,9 +342,13 @@ public:
     dataslot() noexcept : meta() {}
     dataslot(const char *k, const void *d, size_t dlen)
     {
+        reset(k, d, dlen);
+    }
+    void reset(const char *k, const void *d, size_t dlen)
+    {
         /* optionally invalidate slot, setting data automatically causes checksum
             to mismatch */
-        invalidate();
+        // invalidate();
         data.set(d, dlen);
         meta.length = dlen;
         meta.data_crc = data.checksum();
@@ -365,6 +369,10 @@ public:
     inline value_type &value() noexcept
     {
         return data;
+    }
+    inline size_t size() const noexcept
+    {
+        return meta.length;
     }
 
     inline void invalidate() noexcept

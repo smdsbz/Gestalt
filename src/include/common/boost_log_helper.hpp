@@ -53,7 +53,7 @@ do {                                                                        \
 #define boost_log_errno_throw(fn)                                           \
 do {                                                                        \
     std::ostringstream what;                                                \
-    what << #fn << "(): " << std::strerror(errno);                          \
+    [[unlikely]] what << #fn << "(): " << std::strerror(errno);             \
     BOOST_LOG_TRIVIAL(error) << what.str();                                 \
     throw std::runtime_error(what.str());                                   \
 } while (0)
@@ -61,7 +61,7 @@ do {                                                                        \
 #define boost_log_errno_grpc_return(fn)                                     \
 do {                                                                        \
     std::ostringstream what;                                                \
-    what << #fn << "(): " << std::strerror(errno);                          \
+    [[unlikely]] what << #fn << "(): " << std::strerror(errno);             \
     BOOST_LOG_TRIVIAL(error) << what.str();                                 \
     return grpc::Status(grpc::StatusCode::INTERNAL, what.str());            \
 } while (0)

@@ -16,7 +16,7 @@
 #include <unordered_map>
 #include <sstream>
 
-#include "spec/dataslot.hpp"
+#include "../spec/dataslot.hpp"
 
 
 namespace gestalt {

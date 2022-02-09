@@ -13,11 +13,11 @@
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/noncopyable.hpp>
 
-#include "spec/dataslot.hpp"
-#include "internal/data_mapper.hpp"
-#include "internal/rdma_connection_pool.hpp"
-#include "common/lru_cache.hpp"
-#include "defaults.hpp"
+#include "./spec/dataslot.hpp"
+#include "./internal/data_mapper.hpp"
+#include "./internal/rdma_connection_pool.hpp"
+#include "./common/lru_cache.hpp"
+#include "./defaults.hpp"
 
 
 namespace gestalt {

@@ -25,4 +25,15 @@ std::string to_human_readable(size_t i)
         return std::to_string(i / 1_K) + "K";
     return std::to_string(i) + "B";
 }
+
+/**
+ * integer ceil devision from https://stackoverflow.com/questions/2745074/fast-ceiling-of-an-integer-division-in-c-c#comment-103756146
+ * @param l 
+ * @param r 
+ * @return 
+ */
+constexpr long ceil_div(long l, long r)
+{
+    return !!l + ((l - !!l) / r);
+}
 }   /* anonymous namespace */

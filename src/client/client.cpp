@@ -9,6 +9,7 @@
 
 #include "client.hpp"
 #include "internal/data_mapper.hpp"
+#include "spec/ops/all.hpp"
 
 
 namespace gestalt {
@@ -33,7 +34,7 @@ Client::Client(const filesystem::path &config_path) :
     session_pool = RDMAConnectionPool(this);
     BOOST_LOG_TRIVIAL(debug) << "RDMAConnectionPool initialized";
 
-    // TODO:
+    // TODO: initialized structured RDMA ops
 }
 
 }   /* namespace gestalt */
