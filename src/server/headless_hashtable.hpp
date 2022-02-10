@@ -24,6 +24,8 @@
 #include <boost/core/noncopyable.hpp>
 #include "common/boost_log_helper.hpp"
 
+#include "spec/params.hpp"
+
 
 namespace gestalt {
 
@@ -97,8 +99,9 @@ public:
      *      one, defaults to 5
      *  @throw std::invalid_argument
      */
-    HeadlessHashTable(entry_type *d, size_t capacity, size_t max_search_length = 5)
-        : _d(d), _capacity(capacity), _max_search(max_search_length)
+    HeadlessHashTable(entry_type *d, size_t capacity,
+            size_t max_search_length = params::hht_search_length) :
+        _d(d), _capacity(capacity), _max_search(max_search_length)
     {
         if (_capacity >= numeric_limits<decltype(_capacity)>::max() - 1)
             throw std::invalid_argument("capacity too big");

@@ -9,7 +9,7 @@
 
 #include "client.hpp"
 #include "internal/data_mapper.hpp"
-#include "spec/ops/all.hpp"
+#include "./ops/all.hpp"
 
 
 namespace gestalt {

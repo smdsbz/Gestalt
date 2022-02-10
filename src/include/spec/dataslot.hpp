@@ -30,15 +30,15 @@ static_assert(!USING_PMEM);
 #include <cstring>
 #include <stdexcept>
 #include <isa-l/crc.h>
-#include "../common/size_literals.hpp"
+
+#include "./params.hpp"
 
 
 namespace gestalt {
 
 using namespace std;
 
-/* CMBK: tune this! */
-constexpr size_t DATA_SEG_LEN = 4_K;
+constexpr size_t DATA_SEG_LEN = params::data_seg_length;
 
 /**
  * Per-slot Metadata Blob
@@ -64,6 +64,7 @@ constexpr size_t DATA_SEG_LEN = 4_K;
  *
  * If length is larger than `DATA_SEG_LEN`, the KV entry spans accross multiple
  * consecutive slots. Only the first segment records length of the entire entry.
+ * In fact, we zero out the `length` field in tailing slots (see bufferlist.hpp).
  *
  * __Atomic Region__
  *

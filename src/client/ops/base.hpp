@@ -10,10 +10,10 @@
 #include <utility>
 
 #include <rdma/rdma_cma.h>
-#include "../../common/boost_log_helper.hpp"
+#include "common/boost_log_helper.hpp"
 
-#include "../bufferlist.hpp"
-#include "../../common/size_literals.hpp"
+#include "spec/bufferlist.hpp"
+#include "spec/params.hpp"
 
 
 namespace gestalt {
@@ -24,8 +24,8 @@ using namespace std;
 /**
  * @note currently we don't bother support value larger than this
  */
-constexpr size_t max_op_size = 10_M;
-constexpr unsigned max_poll = 1e6;
+constexpr size_t max_op_size = params::max_op_size;
+constexpr unsigned max_poll = params::max_poll_retry;
 
 
 class Base {

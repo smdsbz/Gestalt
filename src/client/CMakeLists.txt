@@ -1,7 +1,8 @@
 set(TARGET gestaltclient)
 add_library(${TARGET} client.cpp
     data_mapper.cpp
-    rdma_connection_pool.cpp)
+    rdma_connection_pool.cpp
+    ops/all.hpp ops/base.hpp ops/read.hpp)
 add_library(gestalt::lib::client ALIAS ${TARGET})
 find_package(Boost REQUIRED COMPONENTS headers log system)
 target_link_libraries(${TARGET}

@@ -24,6 +24,8 @@
 #include <cstdlib>
 
 #include "./dataslot.hpp"
+#include "../common/size_literals.hpp"
+#include "./params.hpp"
 
 
 namespace gestalt {
@@ -36,21 +38,30 @@ using namespace std;
  * @tparam NB size of the largest value you want this instance to hold, in bytes
  */
 template<size_t NB>
-class bufferlist {
+struct bufferlist {
     constexpr static size_t nr_slots = ceil_div(NB, DATA_SEG_LEN);
+
     std::array<dataslot, nr_slots> arr;
+    /**
+     * @private
+     * starting position (slot) of valid value, -1 for no valid data.
+     */
+    mutable ssize_t pos;
 
     /* c/dtor */
-public:
-    bufferlist() noexcept : arr()
+
+    bufferlist() noexcept : pos(-1)
     { }
 
     /* interface */
-public:
-    inline size_t max_size() noexcept
+
+    constexpr size_t max_size() noexcept
     {
         return nr_slots * DATA_SEG_LEN;
     }
+    /**
+     * @return underlying array
+     */
     inline dataslot *data() noexcept
     {
         return arr.data();
@@ -58,7 +69,7 @@ public:
 
     /**
      * Actual size of stored value, as reported by the first slot
-     * @note check validity() before use
+     * @note check validity before use
      * @note The size reported by this method has nothing to do with how many
      * valid data the current object holds, the later should be tracked internally
      * while performing I/O operations. However, by the time I/O operator finishes
@@ -66,49 +77,82 @@ public:
      * have been thrown.
      * @return size of the value
      */
-    inline size_t size() noexcept
+    inline size_t size() const
     {
-        return arr[0].size();
+        if (pos < 0)
+            [[unlikely]] throw std::invalid_argument("pos");
+        return arr[pos].size();
+    }
+    /**
+     * @return number of dataslots the current valid data takes
+     */
+    inline size_t slots() const
+    {
+        return ceil_div(size(), DATA_SEG_LEN);
     }
 
     /**
      * Check bufferlist data validity
+     * @param key Key of object to find. We fetch data in bulk, there could be
+     *      multiple valid slot, we need to know which to look for.
      * @return
-     * * 0 bufferlist all valid, ready to be read
-     * * -EINVAL if invalid, no initialized data
-     * * -ECOMM checksum does not match
-     * * -EAGAIN valid, but locked
-     * * -EOVERFLOW wanted value larger than that of this instance can hold
-     * * -EREMOTE part of data is still remote, i.e. within the reported data
-     *      length encountered an invalid slot, you may fetch again
+     * * 0 - bufferlist all valid and ready to be read, #pos will be set appropriately
+     * * -EINVAL - if invalid, no initialized data of key
+     * * -EOVERFLOW - wanted value larger than that of this instance can hold
+     * * -EREMOTE - part of data is still remote
+     *      * size() will be positive if we read the first half of a large value,
+     *          need to fetch again with a larger range.
+     *      * size() will be zero if we read later half of a large value,
+     *          possibly due to a change in cluster map and data has been migrated
+     *          or just simply deleted and overwriten by some other client.
+     *      * a corner case is size() will be positive but we did fetched enough
+     *          data, but somewhere in between we fetched data of another key,
+     *          that is when later half of data was overwriten by another client
+     *          while fetching. However, this should have been prevented with our
+     *          locking write design.
      */
-    inline int validity() const noexcept
+    inline int validity(const char *key) const noexcept
     {
-        /* check the first block, i.e. header */
-        if (int r = arr[0].validity(); r)
-            return r;
+        if (pos < 0)
+            [[unlikely]] return -EINVAL;
+
+        /* check the first block, i.e. header.
+            if header does not match, start anew */
+        if (arr[pos].validity() || arr[pos].key() != key) {
+            [[unlikely]] if (pos >= params::hht_search_length)
+                [[unlikely]] return -EINVAL;
+            pos++;
+            return validity(key);
+        }
 
         size_t len = size();
 
-        /* entire data is held in one slot */
+        /* we read the later half of a large value, the actual value size is
+            somewhere ahead */
+        if (len == 0)
+            return -EREMOTE;
+
+        /* shortcut: entire data is held in one slot
+            note that validity of the first slot is already checked */
         if (len < DATA_SEG_LEN)
             [[likely]] return 0;
 
-        if (len > max_size())
-            return -EOVERFLOW;
+        if (pos * DATA_SEG_LEN + len > max_size())
+            [[unlikely]] return -EOVERFLOW;
 
         for (size_t i = 1, k = ceil_div(len, DATA_SEG_LEN); i < k; i++) {
-            const auto &d = arr[i];
-            if (d.validity())
-                return -EREMOTE;
+            const auto &d = arr[pos + i];
+            if (d.validity() && d.key() == key)
+                [[unlikely]] return -EREMOTE;
         }
         return 0;
     }
 
     /* indexing helper */
-public:
+
     /**
      * Copy data [off, off + len) into out
+     * @note validate before use
      * @param[out] out copy destination buffer
      * @param off starting point of copy
      * @param len length to copy
@@ -121,19 +165,23 @@ public:
 #define NDEBUG
 #endif
 #endif
-        assert(validity() == 0);
+        assert(!validity());
+
+        if (len > size())
+            [[unlikely]] throw std::overflow_error("len");
 
         /* only take something from the first slot */
         if (off == 0 && len <= DATA_SEG_LEN) {
-            [[likely]] std::memcpy(out, arr[0].value().get(), len);
+            [[likely]] std::memcpy(out, arr[pos].value().get(), len);
             return;
         }
 
-        if (off + len > max_size())
-            throw std::overflow_error("off + len");
-
-        size_t isrc = off / DATA_SEG_LEN;
+        size_t isrc = pos + off / DATA_SEG_LEN;
         off %= DATA_SEG_LEN;
+
+        /* already checked with validity() */
+        if (isrc * DATA_SEG_LEN + off + len > max_size())
+            [[unlikely]] throw std::overflow_error("validity()");
 
         /* pre-align
 
@@ -187,6 +235,10 @@ public:
 
     /**
      * Copy data from din to this bufferlist, all checksum set
+     * @note This resets everything of the bufferlist, #pos will be zeroed, and
+     * range of #dlen will be overwriten reguardless of slot availability.
+     * You may want to manage #pos and check availability of range overwriting
+     * from a higher perspective before calling this.
      * @param key key name
      * @param din source data buffer
      * @param dlen length of data
@@ -199,17 +251,26 @@ public:
 #define NDEBUG
 #endif
 #endif
+        pos = 0;
+
         /* one slot holds it all */
         if (dlen <= DATA_SEG_LEN) {
             [[likely]] arr[0].reset(key, din, dlen);
             return;
         }
 
-        if (dlen > max_size())
-            throw std::overflow_error("len");
+        if (len > max_size())
+            [[unlikely]] throw std::overflow_error("len");
 
         size_t isrc = 0;
-        size_t _dlen = dlen;
+        size_t _dlen = dlen;    // saved #dlen
+
+        /**
+         * @note Do remember to zero length of all slots, and only set length on
+         * the first slot. We relies on this to judge if we read from the middle
+         * of a large value.
+         * @see dataslot.hpp, validity(const char*)
+         */
 
         /* aligned part
 
@@ -235,8 +296,7 @@ public:
         }
 
         arr[0].meta.length = _dlen;
-
-        assert(validity() == 0);
+        assert(!validity(key));
 #ifdef __DID_NOT_HAVE_NDEBUG
 #undef NDEBUG
 #endif
@@ -245,6 +305,6 @@ public:
 
     // void overwrite(void *in, size_t len, size_t off);
 
-};  /* class bufferlist*/
+};  /* struct bufferlist*/
 
 }   /* namespace gestalt */
