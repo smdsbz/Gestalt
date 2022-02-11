@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "./base.hpp"
+#include "internal/ops_base.hpp"
 
 
 namespace gestalt {
@@ -15,7 +15,7 @@ namespace ops {
 using namespace std;
 
 
-class Read : Base {
+class Read : public Base {
 public:
     using Base::buf;
 
@@ -25,7 +25,7 @@ private:
 
     /* c/dtor */
 public:
-    Read(rdma_cm_id *_id, uint32_t _rkey) : Base(_id, _rkey)
+    Read(ibv_pd *pd) : Base(pd)
     {
         sgl[0].addr = reinterpret_cast<uintptr_t>(buf.data());
         sgl[0].lkey = mr->lkey;
@@ -34,7 +34,6 @@ public:
         wr[0].sg_list = sgl; wr[0].num_sge = 1;
         wr[0].opcode = IBV_WR_RDMA_READ;
         wr[0].send_flags = IBV_SEND_SIGNALED;
-        wr[0].wr.rdma.rkey = rkey;
     }
 
     /* interface */
@@ -44,10 +43,20 @@ public:
         return Base::perform(wr);
     }
 
-    inline void parameterize(uintptr_t addr, uint32_t length) noexcept
+    inline void parameterize(
+        rdma_cm_id *id,
+        uintptr_t addr, uint32_t length, uint32_t rkey) noexcept
     {
+        Base::id = id;
         sgl[0].length = length;
         wr[0].wr.rdma.remote_addr = addr;
+    }
+    inline Read &operator()(
+        rdma_cm_id *id,
+        uintptr_t addr, uint32_t length, uint32_t rkey) noexcept
+    {
+        parameterize(id, addr, length, rkey);
+        return *this;
     }
 
 };  /* class Read */

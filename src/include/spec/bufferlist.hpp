@@ -259,7 +259,7 @@ struct bufferlist {
             return;
         }
 
-        if (len > max_size())
+        if (dlen > max_size())
             [[unlikely]] throw std::overflow_error("len");
 
         size_t isrc = 0;

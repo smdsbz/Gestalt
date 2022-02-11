@@ -10,10 +10,13 @@
 #include <filesystem>
 #include <unordered_map>
 
+#include <rdma/rdma_cma.h>
+#include "common/boost_log_helper.hpp"
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/noncopyable.hpp>
 
 #include "./spec/dataslot.hpp"
+#include "./internal/ops_base.hpp"
 #include "./internal/data_mapper.hpp"
 #include "./internal/rdma_connection_pool.hpp"
 #include "./common/lru_cache.hpp"
@@ -51,6 +54,27 @@ class Client final : private boost::noncopyable {
 
     /* RDMA sessions */
 
+    /** ibv_context for #ibvpd */
+    struct managed_ibvctx_t : private boost::noncopyable {
+        /** null-terminated array */
+        ibv_context **devices = NULL;
+        ibv_context *chosen = NULL;
+    public:
+        ~managed_ibvctx_t()
+        {
+            if (!devices)
+                return;
+            rdma_free_devices(devices);
+        }
+    } ibvctx;
+    struct __IbvPdDeleter {
+        inline void operator()(ibv_pd *pd)
+        {
+            if (ibv_dealloc_pd(pd))
+                boost_log_errno_throw(ibv_dealloc_pd);
+        }
+    };
+    unique_ptr<ibv_pd, __IbvPdDeleter> ibvpd;
     /** pooled RDMA connection */
     RDMAConnectionPool session_pool;
     friend class RDMAConnectionPool;
@@ -81,13 +105,13 @@ class Client final : private boost::noncopyable {
     /* con/dtors */
 public:
     Client(const filesystem::path &config_path);
-    /* for now we don't implement HA */
+    /** for now we don't implement HA */
     // void refresh_clustermap();
 
     /* I/O interface */
 public:
-    // TODO: bufferlist
-    // void read();
+    unique_ptr<ops::Base> read_op;
+    void read(const char *key);
 
     /* debug interface */
 public:

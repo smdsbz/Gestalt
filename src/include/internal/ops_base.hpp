@@ -1,5 +1,5 @@
 /**
- * @file base.hpp
+ * @file ops_base.hpp
  *
  * Common base class for all I/O operations
  */
@@ -10,10 +10,10 @@
 #include <utility>
 
 #include <rdma/rdma_cma.h>
-#include "common/boost_log_helper.hpp"
+#include "../common/boost_log_helper.hpp"
 
-#include "spec/bufferlist.hpp"
-#include "spec/params.hpp"
+#include "../spec/bufferlist.hpp"
+#include "../spec/params.hpp"
 
 
 namespace gestalt {
@@ -36,10 +36,6 @@ public:
     bufferlist<max_op_size> buf;
 
 protected:
-    /** RDMA fiber, or connection, whichever you prefer to call it */
-    mutable rdma_cm_id *id;
-    uint32_t rkey;
-
     struct __IbvMrDeleter {
         inline void operator()(ibv_mr *mr)
         {
@@ -50,13 +46,16 @@ protected:
     /** memory region containing #buf */
     unique_ptr<ibv_mr, __IbvMrDeleter> mr;
 
+    /** parameters */
+    rdma_cm_id *id;
+
     /* c/dtor */
 public:
-    Base(rdma_cm_id *_id, uint32_t _rkey) : id(_id), rkey(_rkey)
+    Base(ibv_pd *pd)
     {
         /* get #buf ready for RDMA */
         ibv_mr *raw_mr = ibv_reg_mr(
-            id->pd,
+            pd,
             (void*)&buf, sizeof(buf),
             IBV_ACCESS_LOCAL_WRITE);
         if (!raw_mr)
@@ -83,7 +82,7 @@ protected:
         const ibv_send_wr *wr,
         ibv_send_wr* &bad_wr, ibv_wc &wc) const noexcept
     {
-        if (ibv_post_send(id->qp, (ibv_send_wr*)wr, &bad_wr))
+        if (ibv_post_send(id->qp, const_cast<ibv_send_wr*>(wr), &bad_wr))
             [[unlikely]] return -EBADR;
         for (unsigned retry = max_poll; retry; --retry) {
             int ret = ibv_poll_cq(id->send_cq, 1, &wc);
@@ -97,7 +96,7 @@ protected:
     }
     /**
      * default implementation of perform()
-     * @sa perform(const ibv_send_wr*, ibv_send_wr*&, ibv_wc&)
+     * @sa perform(ibv_send_wr*, ibv_send_wr*&, ibv_wc&)
      */
     virtual int perform(const ibv_send_wr *wr) const noexcept
     {
@@ -107,12 +106,13 @@ protected:
     }
 public:
     /**
-     * should be implemented as perform(ibv_send_wr&, ibv_send_wr*&, ibv_wc&)
-     * while taking wr from derived
-     * @return defined by derived
+     * should be implemented as wrapper around
+     * perform(const ibv_send_wr *wr, ibv_send_wr*&, ibv_wc&) while taking
+     * #id and #wr from derived
+     * @return 
      */
     virtual int perform(void) const = 0;
-    constexpr int operator()(void) const
+    inline int operator()(void) const
     {
         return perform();
     }

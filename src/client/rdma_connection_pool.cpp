@@ -77,7 +77,7 @@ RDMAConnectionPool::RDMAConnectionPool(Client *_c) : client(_c)
                 .qp_type = IBV_QPT_RC,
                 .sq_sig_all = 0
             };
-            if (rdma_create_ep(&raw_conn, addrinfo, NULL, &init_attr))
+            if (rdma_create_ep(&raw_conn, addrinfo, client->ibvpd.get(), &init_attr))
                 boost_log_errno_throw(rdma_create_ep);
             if (rdma_connect(raw_conn, NULL)) {
                 BOOST_LOG_TRIVIAL(warning) << "Cannot connect to server "
