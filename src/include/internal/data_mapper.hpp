@@ -88,12 +88,12 @@ public:
      *
      * Simple linear-probe.
      *
-     * @param k object key (okey)
+     * @param khx object key (okey) hash
      * @param r replica count
      * @return ordered acting set of size `r`, if smaller than `r` then something
      * is wrong.
      */
-    acting_set map(const string &k, unsigned r) const;
+    acting_set map(uint32_t khx, unsigned r) const;
     void mark_out(unsigned id);
 
     inline string dump_clustermap() const

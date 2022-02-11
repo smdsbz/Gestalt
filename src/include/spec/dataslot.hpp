@@ -345,7 +345,7 @@ public:
     {
         reset(k, d, dlen);
     }
-    void reset(const char *k, const void *d, size_t dlen)
+    void reset(const key_type &k, const void *d, size_t dlen)
     {
         /* optionally invalidate slot, setting data automatically causes checksum
             to mismatch */
@@ -354,7 +354,7 @@ public:
         meta.length = dlen;
         meta.data_crc = data.checksum();
         /* set valid flag at the end */
-        meta.set_key(k);
+        meta.set_key(k.c_str());
     }
     dataslot(const string &k, const value_type &v) :
         data(const_cast<value_type&>(v).get(), sizeof(v)),
@@ -421,7 +421,7 @@ static_assert((sizeof(dataslot) % 512_B) == 0);
 
 template<>
 struct std::hash<gestalt::dataslot::key_type> {
-    inline std::size_t operator()(const gestalt::dataslot::key_type &k)
+    inline std::size_t operator()(const gestalt::dataslot::key_type &k) const
     {
         return k.hash();
     }

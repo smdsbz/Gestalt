@@ -36,13 +36,21 @@ public:
         void put(const KEY_T &key, const VAL_T &val){
                 auto it = item_map.find(key);
                 if(it != item_map.end()){
-                        item_list.erase(it->second);
+                        [[unlikely]] item_list.erase(it->second);
                         item_map.erase(it);
                 }
                 item_list.push_front(make_pair(key,val));
                 item_map.insert(make_pair(key, item_list.begin()));
                 clean();
         };
+        void erase(const KEY_T &key)
+        {
+                auto it = item_map.find(key);
+                if (it == item_map.end())
+                        [[unlikely]] return;
+                item_list.erase(it->second);
+                item_map.erase(it);
+        }
         bool exist(const KEY_T &key){
                 return (item_map.count(key)>0);
         };

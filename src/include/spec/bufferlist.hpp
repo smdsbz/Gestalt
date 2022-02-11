@@ -111,7 +111,7 @@ struct bufferlist {
      *          while fetching. However, this should have been prevented with our
      *          locking write design.
      */
-    inline int validity(const char *key) const noexcept
+    inline int validity(const dataslot::key_type &key) const noexcept
     {
         if (pos < 0)
             [[unlikely]] return -EINVAL;
@@ -243,7 +243,7 @@ struct bufferlist {
      * @param din source data buffer
      * @param dlen length of data
      */
-    void set(const char *key, void *din, size_t dlen)
+    void set(const dataslot::key_type &key, void *din, size_t dlen)
     {
 #ifdef DEBUG_BUFFERLIST
 #ifndef NDEBUG

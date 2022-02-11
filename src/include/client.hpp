@@ -9,6 +9,8 @@
 
 #include <filesystem>
 #include <unordered_map>
+#include <vector>
+#include <tuple>
 
 #include <rdma/rdma_cma.h>
 #include "common/boost_log_helper.hpp"
@@ -45,6 +47,7 @@ class Client final : private boost::noncopyable {
 
     unsigned id;
     boost::property_tree::ptree config;
+    unsigned num_replicas;
 
     /* cluster */
 
@@ -84,11 +87,13 @@ class Client final : private boost::noncopyable {
     struct cluster_physical_addr {
         /** server ID */
         unsigned id;
-        /** redirected VA on that server */
+        /** starting VA of requested value on that server */
         uintptr_t addr;
+        /** length (in bytes) of the object */
+        uint32_t length;
     public:
-        cluster_physical_addr(unsigned _id, uintptr_t _addr) noexcept :
-            id(_id), addr(_addr)
+        cluster_physical_addr(unsigned _id, uintptr_t _addr, uint32_t _length) noexcept :
+            id(_id), addr(_addr), length(_length)
         { }
         /**
          * Default constructor, make STL happy :)
@@ -96,21 +101,39 @@ class Client final : private boost::noncopyable {
         cluster_physical_addr() noexcept : id(0)
         { }
     };
+    /** replica locator */
+    using rloc = cluster_physical_addr;
+    /** object locator, i.e. set of locators of ranked replica */
+    using oloc = vector<rloc>;
     /**
-     * caches redirected location of objects that are not stored at their default
-     * calculated location
+     * caches redirected location of object that are not stored at their default
+     * calculated placement
+     * @note currently we treat objects that cannot be placed at their default
+     * location as failed insertions, i.e. this cache is currently not used
      */
-    LRUCache<okey, cluster_physical_addr> abnormal_placements;
+    LRUCache<okey, oloc> abnormal_placements;
 
     /* con/dtors */
 public:
     Client(const filesystem::path &config_path);
-    /** for now we don't implement HA */
+    /** for now we don't implement HA, cluster map will be static */
     // void refresh_clustermap();
 
     /* I/O interface */
+private:
+    /**
+     * calculate mapped location
+     * @param key object key
+     * @return ordered set of acting replica location
+     */
+    oloc map(const okey &key);
 public:
     unique_ptr<ops::Base> read_op;
+    /**
+     * perform read on #key, data will be stored in #read_op.buf
+     * @note if calling this variant, validate data on your own
+     * @param key 
+     */
     void read(const char *key);
 
     /* debug interface */

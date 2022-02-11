@@ -42,6 +42,7 @@ public:
     {
         return Base::perform(wr);
     }
+    using Base::operator();
 
     inline void parameterize(
         rdma_cm_id *id,

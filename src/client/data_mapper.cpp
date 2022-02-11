@@ -51,9 +51,8 @@ DataMapper::DataMapper(Client *_c) : client(_c)
     }
 }
 
-DataMapper::acting_set DataMapper::map(const string &k, unsigned r) const
+DataMapper::acting_set DataMapper::map(uint32_t base, unsigned r) const
 {
-    unsigned base = okey::hash(k) % server_rank.size();
     acting_set out;
     for (unsigned off = 0; off < server_rank.size() && out.size() < r; ++off) {
         unsigned rank;
