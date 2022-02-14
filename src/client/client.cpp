@@ -16,6 +16,7 @@ namespace gestalt {
 using namespace std;
 
 using ReadOp = ops::Read;
+using LockOp = ops::Lock;
 
 
 Client::Client(const filesystem::path &config_path) :
@@ -54,6 +55,7 @@ Client::Client(const filesystem::path &config_path) :
 
     /* initialize structured RDMA ops */
     read_op.reset(new ReadOp(ibvpd.get()));
+    lock_op.reset(new LockOp(ibvpd.get()));
 }
 
 
@@ -78,7 +80,7 @@ Client::oloc Client::map(const okey &key)
 
 /* I/O interface */
 
-void Client::read(const char *key)
+void Client::get(const char *key)
 {
     auto pop = dynamic_cast<ReadOp*>(read_op.get());
     if (!pop)

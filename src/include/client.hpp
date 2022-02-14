@@ -127,6 +127,7 @@ private:
      * @return ordered set of acting replica location
      */
     oloc map(const okey &key);
+
 public:
     unique_ptr<ops::Base> read_op;
     /**
@@ -134,7 +135,18 @@ public:
      * @note if calling this variant, validate data on your own
      * @param key 
      */
-    void read(const char *key);
+    void get(const char *key);
+
+    /** lock (& unlock) */
+    unique_ptr<ops::Base> lock_op;
+    unique_ptr<ops::Base> write_op;
+    /**
+     * perform write (reset) on #key
+     * @param key 
+     * @param din 
+     * @param dlen 
+     */
+    void put(const char *key, void *din, size_t dlen);
 
     /* debug interface */
 public:

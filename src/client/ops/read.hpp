@@ -18,7 +18,6 @@ using namespace std;
 class Read : public Base {
 public:
     using Base::buf;
-
 private:
     ibv_sge sgl[1];
     ibv_send_wr wr[1];
