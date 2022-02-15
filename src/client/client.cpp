@@ -3,6 +3,7 @@
  */
 
 #include <fstream>
+#include <algorithm>
 
 #include <boost/property_tree/ini_parser.hpp>
 #include "common/boost_log_helper.hpp"
@@ -67,7 +68,7 @@ Client::oloc Client::map(const okey &key)
     const auto hx = key.hash();
     const auto nodes = node_mapper.map(hx, num_replicas);
 
-    oloc ret;
+    oloc ret; ret.reserve(num_replicas);
     for (const auto &sid : nodes) {
         const auto &s = session_pool.pool.at(sid);
         const uintptr_t start_addr = s.addr + (hx % s.slots) * params::data_seg_length;
@@ -80,7 +81,7 @@ Client::oloc Client::map(const okey &key)
 
 /* I/O interface */
 
-void Client::get(const char *key)
+void Client::raw_read(const char *key)
 {
     auto pop = dynamic_cast<ReadOp*>(read_op.get());
     if (!pop)
@@ -98,7 +99,15 @@ void Client::get(const char *key)
         auto &op = *pop;
         const auto &loc = locs[0];
         const auto &mr = session_pool.pool.at(loc.id);
-        int r = op (mr.conn.get(), loc.addr, loc.length, mr.rkey) ();
+        /**
+         * @todo if #loc taken from redirect table, no search is required,
+         * shorten latency
+         */
+        const uint32_t search_span = std::min(
+            loc.length + (params::hht_search_length - 1) * sizeof(dataslot),
+            mr.length - loc.addr
+        );
+        int r = op (mr.conn.get(), loc.addr, search_span, mr.rkey) ();
         if (r) {
             const auto what = string("RDMA op threw: ") + std::strerror(-r);
             [[unlikely]] throw std::runtime_error(what);
@@ -106,6 +115,29 @@ void Client::get(const char *key)
     }
 
     /* validate data on your own */
+    read_op->buf.pos = 0;
+}
+
+int Client::get(const char *key)
+{
+    raw_read(key);
+    int v = read_op->buf.validity(key);
+    if (v == 0)
+        [[likely]] return 0;
+
+    if (v == -EINVAL)
+        return -EINVAL;
+
+    if (v == -EREMOTE) {
+        // TODO: multi-slot object
+        throw std::runtime_error("long value support not implemented yet");
+    }
+    if (v == -EOVERFLOW) {
+        // TODO: segmented read for really large data
+        throw std::runtime_error("long value support not implemented yet");
+    }
+
+    throw std::runtime_error("unreachable");
 }
 
 }   /* namespace gestalt */

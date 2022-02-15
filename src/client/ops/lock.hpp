@@ -40,8 +40,8 @@ public:
 public:
     /**
      * @param id 
-     * @param addr remote VA of the dataslot, offset to atomic field will be
-     *      calculated internally
+     * @param addr justified remote VA of the dataslot, offset to atomic field
+     *      will be calculated internally
      * @param khx key hash (crc32_iscsi(), see dataslot.hpp)
      * @param is_lock is parameterizing lock or unlock
      * @param rkey 

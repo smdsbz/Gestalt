@@ -43,6 +43,14 @@ public:
     }
     using Base::operator();
 
+    /**
+     * 
+     * @param id 
+     * @param addr remote VA, calculated VA will be fine, does not have to be
+     *      justified
+     * @param length length of wanted data linear searching range
+     * @param rkey 
+     */
     inline void parameterize(
         rdma_cm_id *id,
         uintptr_t addr, uint32_t length, uint32_t rkey) noexcept

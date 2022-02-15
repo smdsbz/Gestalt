@@ -103,8 +103,8 @@ public:
             size_t max_search_length = params::hht_search_length) :
         _d(d), _capacity(capacity), _max_search(max_search_length)
     {
-        if (_capacity >= numeric_limits<decltype(_capacity)>::max() - 1)
-            throw std::invalid_argument("capacity too big");
+        if (_capacity <= _max_search)
+            throw std::invalid_argument("capacity too small");
     };
 
     /* iterator */

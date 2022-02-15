@@ -47,6 +47,9 @@ class Client final : private boost::noncopyable {
 
     unsigned id;
     boost::property_tree::ptree config;
+    /**
+     * number of replicas of the bucket, read-only
+     */
     unsigned num_replicas;
 
     /* cluster */
@@ -89,7 +92,7 @@ class Client final : private boost::noncopyable {
         unsigned id;
         /** starting VA of requested value on that server */
         uintptr_t addr;
-        /** length (in bytes) of the object */
+        /** length (in bytes) of the object, multiples of sizeof(dataslot) */
         uint32_t length;
     public:
         cluster_physical_addr(unsigned _id, uintptr_t _addr, uint32_t _length) noexcept :
@@ -131,11 +134,20 @@ private:
 public:
     unique_ptr<ops::Base> read_op;
     /**
-     * perform read on #key, data will be stored in #read_op.buf
+     * perform raw read on #key, data will be stored in #read_op.buf
      * @note if calling this variant, validate data on your own
      * @param key 
+     * @sa Client::get(const char*)
      */
-    void get(const char *key);
+    void raw_read(const char *key);
+    /**
+     * perform read on #key
+     * @param key 
+     * @return validity of read data
+     * * 0 ok
+     * * -EINVAL data not found
+     */
+    int get(const char *key);
 
     /** lock (& unlock) */
     unique_ptr<ops::Base> lock_op;

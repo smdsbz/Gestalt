@@ -55,7 +55,7 @@ struct bufferlist {
 
     /* interface */
 
-    constexpr size_t max_size() noexcept
+    constexpr size_t max_size() const noexcept
     {
         return nr_slots * DATA_SEG_LEN;
     }
@@ -109,9 +109,9 @@ struct bufferlist {
      *          data, but somewhere in between we fetched data of another key,
      *          that is when later half of data was overwriten by another client
      *          while fetching. However, this should have been prevented with our
-     *          locking write design.
+     *          locking write design, for the CAS lock will fail on overwrite.
      */
-    inline int validity(const dataslot::key_type &key) const noexcept
+    int validity(const dataslot::key_type &key) const noexcept
     {
         if (pos < 0)
             [[unlikely]] return -EINVAL;
