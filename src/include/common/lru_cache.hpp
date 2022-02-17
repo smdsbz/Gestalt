@@ -30,7 +30,7 @@ private:
         };
 public:
         LRUCache(int cache_size_):cache_size(cache_size_){
-                ;
+                item_map.reserve(cache_size * .1 + 1);
         };
 
         void put(const KEY_T &key, const VAL_T &val){

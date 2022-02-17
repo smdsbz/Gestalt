@@ -3,6 +3,7 @@
  */
 
 #include <fstream>
+#include <cassert>
 #include <algorithm>
 
 #include <boost/property_tree/ini_parser.hpp>
@@ -18,6 +19,7 @@ using namespace std;
 
 using ReadOp = ops::Read;
 using LockOp = ops::Lock;
+using WriteOp = ops::WriteAPM;
 
 
 Client::Client(const filesystem::path &config_path) :
@@ -57,14 +59,18 @@ Client::Client(const filesystem::path &config_path) :
     /* initialize structured RDMA ops */
     read_op.reset(new ReadOp(ibvpd.get()));
     lock_op.reset(new LockOp(ibvpd.get()));
+    write_op.reset(new WriteOp(ibvpd.get()));
 }
 
 
-Client::oloc Client::map(const okey &key)
+Client::oloc Client::map(const okey &key, bool &need_search)
 {
-    if (abnormal_placements.exist(key))
-        [[unlikely]] return abnormal_placements.get(key);
+    if (abnormal_placements.exist(key)) {
+        [[unlikely]] need_search = false;
+        return abnormal_placements.get(key);
+    }
 
+    need_search = true;
     const auto hx = key.hash();
     const auto nodes = node_mapper.map(hx, num_replicas);
 
@@ -83,12 +89,12 @@ Client::oloc Client::map(const okey &key)
 
 void Client::raw_read(const char *key)
 {
-    auto pop = dynamic_cast<ReadOp*>(read_op.get());
-    if (!pop)
-        [[unlikely]] throw std::runtime_error("bad cast to ops::Read");
+    auto prop = dynamic_cast<ReadOp*>(read_op.get());
+    assert(prop);
     /* HACK: avoid further repeated construct, if not optimized */
     const okey _key(key);
-    const auto locs = this->map(_key);
+    bool is_search_needed;
+    const auto locs = this->map(_key, is_search_needed);
     if (locs.empty()) {
         const auto what = string("cannot map key ") + key;
         [[unlikely]] throw std::runtime_error(what);
@@ -96,18 +102,16 @@ void Client::raw_read(const char *key)
 
     /* fetch data from remote */
     {
-        auto &op = *pop;
         const auto &loc = locs[0];
         const auto &mr = session_pool.pool.at(loc.id);
-        /**
-         * @todo if #loc taken from redirect table, no search is required,
-         * shorten latency
-         */
-        const uint32_t search_span = std::min(
-            loc.length + (params::hht_search_length - 1) * sizeof(dataslot),
-            mr.length - loc.addr
-        );
-        int r = op (mr.conn.get(), loc.addr, search_span, mr.rkey) ();
+        const uint32_t search_span =
+            is_search_needed ?
+            std::min(
+                loc.length + (params::hht_search_length - 1) * sizeof(dataslot),
+                mr.length - loc.addr
+            ) :
+            loc.length;
+        int r = (*prop) (mr.conn.get(), loc.addr, search_span, mr.rkey) ();
         if (r) {
             const auto what = string("RDMA op threw: ") + std::strerror(-r);
             [[unlikely]] throw std::runtime_error(what);
@@ -138,6 +142,75 @@ int Client::get(const char *key)
     }
 
     throw std::runtime_error("unreachable");
+}
+
+int Client::put(const char *k, void *d, size_t dl)
+{
+    auto pwop = dynamic_cast<WriteOp*>(write_op.get());
+    assert(pwop);
+
+    pwop->buf.set(k, d, dl);
+
+    return put();
+}
+
+int Client::put(void)
+{
+    // TODO: 
+    auto plop = dynamic_cast<LockOp*>(lock_op.get());
+    auto pwop = dynamic_cast<WriteOp*>(write_op.get());
+    assert(plop && pwop);
+
+    const auto &_key = pwop->buf.data()[0].key();
+    bool is_search_needed;
+    const auto locs = this->map(_key, is_search_needed);
+
+    /**
+     * @note currently large value support not implemented
+     */
+    if (pwop->buf.slots() > 1)
+        [[unlikely]] throw std::runtime_error("large object not supported yet");
+
+    /* lock (primary) */
+
+    /**
+     * If lock failed, could be
+     *  1. an invalid slot
+     *      a) cluster shifted
+     *      b) data elsewhere in linear search range
+     *      c) ok to alloc for object creation (if not b)
+     *  2. key (fingerprint) does not match
+     *      a) cluster shifted
+     *      b) data elsewhere in linear search range
+     *      b) collision on create, bucket near full
+     *  3. (valid and key match, but) object locked
+     *      a) write locked, try again later
+     *
+     * Cluster shift is prevented at bucket level, that is, once RDMA connections
+     * are initialized, we make sure the data placement within a bucket remains
+     * static.
+     *
+     * And in the current implementation, linear search is not implemented.
+     * Therefore a lock fail due to invalid always means object not exist, and
+     * key mismatch means collision.
+     * @sa Client::abnormal_placements
+     */
+
+    /**
+     * @note currently redirection is not implemented, linear search is not
+     * performed on neither primary nor replicas - collision on primary means
+     * failure, and collision on replicas is ignored (as this implementation is
+     * only intended for performance benchmarking) !
+     */
+
+    /* write primary (write with lock preserved) */
+
+    /* write secondary (write with lock cleared) */
+    // TODO: poll all
+
+    /* unlock (primary) */
+
+    return 0;
 }
 
 }   /* namespace gestalt */

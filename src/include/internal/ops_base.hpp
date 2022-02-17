@@ -33,7 +33,7 @@ public:
     /**
      * stores read result or to-be-writen data
      */
-    bufferlist<max_op_size> buf;
+    mutable bufferlist<max_op_size> buf;
 
 protected:
     struct __IbvMrDeleter {
@@ -46,7 +46,8 @@ protected:
     /** memory region containing #buf */
     unique_ptr<ibv_mr, __IbvMrDeleter> mr;
 
-    /** parameters */
+    /* common parameters */
+
     rdma_cm_id *id;
 
     /* c/dtor */
@@ -67,6 +68,9 @@ public:
 protected:
     /**
      * common logic performing RDMA operation
+     *
+     * the method is virutal so you may repurpose it entirely
+     *
      * @param[in] wr RDMA work request, preferably member of the derived class, so
      *      we don't have to construct every field everytime. The work request
      *      must generate one and only one work completion.
@@ -77,28 +81,32 @@ protected:
      * * -EBADR bad work request
      * * -ETIME waited too long on completion queue
      * * -ECOMM RDMA returned an error state
+     * * -ECANCELED RDMA returned error in completion
      */
-    inline int perform(
+    virtual int perform(
         const ibv_send_wr *wr,
         ibv_send_wr* &bad_wr, ibv_wc &wc) const noexcept
     {
         if (ibv_post_send(id->qp, const_cast<ibv_send_wr*>(wr), &bad_wr))
             [[unlikely]] return -EBADR;
         for (unsigned retry = max_poll; retry; --retry) {
-            int ret = ibv_poll_cq(id->send_cq, 1, &wc);
-            if (!ret)
-                continue;
-            if (ret < 0)
+            int r;
+            [[likely]] r = ibv_poll_cq(id->send_cq, 1, &wc);
+            if (!r)
+                [[unlikely]] continue;
+            if (r < 0)
                 [[unlikely]] return -ECOMM;
+            if (wc.status != IBV_WC_SUCCESS)
+                [[unlikely]] return -ECANCELED;
             return 0;
         }
         return -ETIME;
     }
     /**
      * default implementation of perform()
-     * @sa perform(ibv_send_wr*, ibv_send_wr*&, ibv_wc&)
+     * @sa perform(const ibv_send_wr*, ibv_send_wr*&, ibv_wc&) const
      */
-    virtual int perform(const ibv_send_wr *wr) const noexcept
+    inline int perform(const ibv_send_wr *wr) const noexcept
     {
         ibv_send_wr *bad_wr;
         ibv_wc wc;

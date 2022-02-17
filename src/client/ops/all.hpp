@@ -8,3 +8,4 @@
 
 #include "./read.hpp"
 #include "./lock.hpp"
+#include "./write_apm.hpp"

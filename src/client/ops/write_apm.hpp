@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "internal/ops_base.hpp"
 
 
@@ -21,12 +23,27 @@ namespace ops {
 using namespace std;
 
 
+/**
+ * Parallel write
+ */
 class WriteAPM final : public Base {
 public:
     using Base::buf;
+    struct target_t {
+        rdma_cm_id *id;
+        uintptr_t addr;
+        uint32_t rkey;
+    };
 private:
     ibv_sge sgl[2];
-    ibv_send_wr wr[2];
+    mutable ibv_send_wr wr[2];
+    /**
+     * If writing to a primary set, the first replica, aka the primary replica,
+     * should be left in locked state. A separate Unlock op will unlock it in
+     * the end.
+     */
+    bool is_primary_set;
+    vector<target_t> targets;
 
     /* c/dtor */
 public:
@@ -54,36 +71,82 @@ public:
 
     /* interface */
 public:
+    /**
+     * 
+     * @note fill #buf before parameterizing
+     * @param vec 
+     * @param primary if writing to primary set
+     */
+    inline void parameterize(const decltype(targets) &vec, bool primary) noexcept
+    {
+        targets = vec;
+        is_primary_set = primary;
+        sgl[0].length = buf.slots() * sizeof(dataslot);
+    }
+    inline WriteAPM &operator()(const decltype(targets) &vec, bool primary) noexcept
+    {
+        parameterize(vec, primary);
+        return *this;
+    }
+
+    int perform(
+        const ibv_send_wr *wr,
+        ibv_send_wr* &bad_wr, ibv_wc &wc) const noexcept override
+    {
+        assert(wr == this->wr);
+
+        /* emit requests*/
+
+        if (is_primary_set) {
+            auto &header_flag = buf.arr[0].meta.atomic.m.bits;
+            header_flag |= dataslot::meta_type::bits_flag::lock;
+
+            const auto &prim = targets.at(0);
+            this->wr[0].wr.rdma.remote_addr = prim.addr;
+            this->wr[0].wr.rdma.rkey = prim.rkey;
+            this->wr[1].wr.rdma.remote_addr = prim.addr;
+            this->wr[1].wr.rdma.rkey = prim.rkey;
+            if (ibv_post_send(prim.id->qp, this->wr, &bad_wr))
+                [[unlikely]] return -EBADR;
+
+            header_flag &= ~dataslot::meta_type::bits_flag::lock;
+        }
+
+        for (unsigned r = is_primary_set ? 1 : 0; r < targets.size(); r++) {
+            const auto &t = targets.at(r);
+            this->wr[0].wr.rdma.remote_addr = t.addr;
+            this->wr[0].wr.rdma.rkey = t.rkey;
+            this->wr[1].wr.rdma.remote_addr = t.addr;
+            this->wr[1].wr.rdma.rkey = t.rkey;
+            if (ibv_post_send(t.id->qp, this->wr, &bad_wr))
+                [[unlikely]] return -EBADR;
+        }
+
+        /* poll from all channels */
+
+        for (const auto &t : targets) {
+            int r;
+            for (unsigned retry = max_poll; retry; --retry) {
+                [[likely]] r = ibv_poll_cq(t.id->send_cq, 1, &wc);
+                if (!r)
+                    [[unlikely]] continue;
+                if (r < 0)
+                    [[unlikely]] return -ECOMM;
+                if (wc.status != IBV_WC_SUCCESS)
+                    [[unlikely]] return -ECANCELED;
+                break;
+            }
+            if (!r)
+                [[unlikely]] return -ETIME;
+        }
+
+        return 0;
+    }
     int perform(void) const override
     {
         return Base::perform(wr);
     }
     using Base::operator();
-
-    /**
-     * 
-     * @note fill #buf before parameterizing
-     * @param id 
-     * @param addr justified remote VA of dataslot
-     * @param rkey 
-     */
-    inline void parameterize(
-        rdma_cm_id *id,
-        uintptr_t addr, uint32_t rkey) noexcept
-    {
-        Base::id = id;
-        sgl[0].length = buf.slots() * sizeof(dataslot);
-        wr[0].wr.rdma.remote_addr = addr;
-        wr[1].wr.rdma.remote_addr = addr;
-    }
-    inline WriteAPM &operator()(
-        rdma_cm_id *id,
-        uintptr_t addr, uint32_t rkey) noexcept
-    {
-        parameterize(id, addr, rkey);
-        return *this;
-    }
-
 
 };  /* class WriteAPM */
 

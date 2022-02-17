@@ -110,9 +110,10 @@ class Client final : private boost::noncopyable {
     using oloc = vector<rloc>;
     /**
      * caches redirected location of object that are not stored at their default
-     * calculated placement
+     * calculated placement, i.e. those require linear search on at least one of
+     * its replica.
      * @note currently we treat objects that cannot be placed at their default
-     * location as failed insertions, i.e. this cache is currently not used
+     * location as failed insertions, i.e. this cache is currently always empty
      */
     LRUCache<okey, oloc> abnormal_placements;
 
@@ -127,9 +128,10 @@ private:
     /**
      * calculate mapped location
      * @param key object key
+     * @param[out] need_search do we still need to search for a justified placement
      * @return ordered set of acting replica location
      */
-    oloc map(const okey &key);
+    oloc map(const okey &key, bool &need_search);
 
 public:
     unique_ptr<ops::Base> read_op;
@@ -149,16 +151,28 @@ public:
      */
     int get(const char *key);
 
-    /** lock (& unlock) */
     unique_ptr<ops::Base> lock_op;
+    unique_ptr<ops::Base> unlock_op;
     unique_ptr<ops::Base> write_op;
+    /**
+     * perform overwrite on #key
+     * @note if calling this variant, #write_op must be filled
+     * @note currently collision on any replica will be treated as failed
+     *      insertion, and -EDQUOT is returned.
+     * @return 
+     * * 0 ok
+     * * -EDQUOT failed to find a slot to fill
+     */
+    int put(void);
     /**
      * perform write (reset) on #key
      * @param key 
      * @param din 
      * @param dlen 
+     * @return 
+     * @sa Client::put(void)
      */
-    void put(const char *key, void *din, size_t dlen);
+    int put(const char *key, void *din, size_t dlen);
 
     /* debug interface */
 public:
