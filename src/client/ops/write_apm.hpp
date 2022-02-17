@@ -33,6 +33,10 @@ public:
         rdma_cm_id *id;
         uintptr_t addr;
         uint32_t rkey;
+    public:
+        target_t(rdma_cm_id *_id, uintptr_t _addr, uint32_t _rkey) noexcept :
+            id(_id), addr(_addr), rkey(_rkey)
+        { }
     };
 private:
     ibv_sge sgl[2];

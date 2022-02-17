@@ -18,7 +18,7 @@ namespace gestalt {
 using namespace std;
 
 using ReadOp = ops::Read;
-using LockOp = ops::Lock;
+using LockOp = ops::Lock; using UnlockOp = ops::Unlock;
 using WriteOp = ops::WriteAPM;
 
 
@@ -59,6 +59,7 @@ Client::Client(const filesystem::path &config_path) :
     /* initialize structured RDMA ops */
     read_op.reset(new ReadOp(ibvpd.get()));
     lock_op.reset(new LockOp(ibvpd.get()));
+    unlock_op.reset(new UnlockOp(ibvpd.get()));
     write_op.reset(new WriteOp(ibvpd.get()));
 }
 
@@ -156,14 +157,10 @@ int Client::put(const char *k, void *d, size_t dl)
 
 int Client::put(void)
 {
-    // TODO: 
     auto plop = dynamic_cast<LockOp*>(lock_op.get());
+    auto pulop = dynamic_cast<UnlockOp*>(unlock_op.get());
     auto pwop = dynamic_cast<WriteOp*>(write_op.get());
-    assert(plop && pwop);
-
-    const auto &_key = pwop->buf.data()[0].key();
-    bool is_search_needed;
-    const auto locs = this->map(_key, is_search_needed);
+    assert(plop && pulop && pwop);
 
     /**
      * @note currently large value support not implemented
@@ -171,10 +168,22 @@ int Client::put(void)
     if (pwop->buf.slots() > 1)
         [[unlikely]] throw std::runtime_error("large object not supported yet");
 
-    /* lock (primary) */
+    const auto &_key = pwop->buf.data()[0].key();
+    bool is_search_needed;
+    const auto locs = this->map(_key, is_search_needed);
+
+    /* justify replica location */
+
+    vector<WriteOp::target_t> vec;  // replica channel vector
+    for (const auto &r : locs) {
+        const auto &m = session_pool.pool.at(r.id);
+        vec.push_back({m.conn.get(), r.addr, m.rkey});
+    }
 
     /**
-     * If lock failed, could be
+     * @note
+     * If test during placement justification, which is essentially lock dry-run,
+     * failed, could be
      *  1. an invalid slot
      *      a) cluster shifted
      *      b) data elsewhere in linear search range
@@ -190,25 +199,49 @@ int Client::put(void)
      * are initialized, we make sure the data placement within a bucket remains
      * static.
      *
-     * And in the current implementation, linear search is not implemented.
-     * Therefore a lock fail due to invalid always means object not exist, and
-     * key mismatch means collision.
+     * Moreover, in the current implementation, linear search is not implemented,
+     * therefore a lock fail due to invalid always means object not exist, and
+     * key mismatch always means collision.
      * @sa Client::abnormal_placements
+     *
+     * Therefore, linear search on write does not need to be implemented, at
+     * least for now. What comes out of Client::map(const okey&, bool&) is where
+     * data goes to. Collision on primary means failure, and collision on replicas
+     * is ignored (as this implementation is only intended for performance
+     * benchmarking) !
      */
+    is_search_needed = false;
+    if (is_search_needed)
+        [[unlikely]] throw std::runtime_error("not supported yet");
 
-    /**
-     * @note currently redirection is not implemented, linear search is not
-     * performed on neither primary nor replicas - collision on primary means
-     * failure, and collision on replicas is ignored (as this implementation is
-     * only intended for performance benchmarking) !
-     */
+    /* lock (primary) */
+    {
+        const auto &prim = vec.at(0);
+        if (int r = (*plop)(prim.id, prim.addr, _key, prim.rkey)(); r) {
+            [[unlikely]] if (r == -ECANCELED)
+                [[likely]] return -EDQUOT;
+            return r;
+        }
+    }
 
-    /* write primary (write with lock preserved) */
+    /* write primary (write with lock preserved on the 1st order, cleared on rest) */
+    {
+        if (int r = (*pwop)(vec, /*primary?*/true)(); r)
+            [[unlikely]] return r;
+    }
 
     /* write secondary (write with lock cleared) */
-    // TODO: poll all
+    {
+        if (int r = (*pwop)(vec, /*primary?*/false)(); r)
+            [[unlikely]] return r;
+    }
 
     /* unlock (primary) */
+    {
+        const auto &prim = vec.at(0);
+        if (int r = (*pulop)(prim.id, prim.addr, _key, prim.rkey)(); r)
+            [[unlikely]] return r;
+    }
 
     return 0;
 }

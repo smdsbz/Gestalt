@@ -58,14 +58,8 @@ public:
                 dataslot::meta_type::bits_flag::valid;
             /* locked state value */
             uint64_t vl = vu | dataslot::meta_type::bits_flag::lock;
-            // if (is_lock) {
-                wr[0].wr.atomic.compare_add = vu;
-                wr[0].wr.atomic.swap = vl;
-            // }
-            // else {
-            //     wr[0].wr.atomic.compare_add = vl;
-            //     wr[0].wr.atomic.swap = vu;
-            // }
+            wr[0].wr.atomic.compare_add = vu;
+            wr[0].wr.atomic.swap = vl;
         }
         wr[0].wr.atomic.rkey = rkey;
     }
@@ -163,14 +157,8 @@ public:
                 dataslot::meta_type::bits_flag::valid;
             /* locked state value */
             uint64_t vl = vu | dataslot::meta_type::bits_flag::lock;
-            // if (is_lock) {
-            //     wr[0].wr.atomic.compare_add = vu;
-            //     wr[0].wr.atomic.swap = vl;
-            // }
-            // else {
-                wr[0].wr.atomic.compare_add = vl;
-                wr[0].wr.atomic.swap = vu;
-            // }
+            wr[0].wr.atomic.compare_add = vl;
+            wr[0].wr.atomic.swap = vu;
         }
         wr[0].wr.atomic.rkey = rkey;
     }
