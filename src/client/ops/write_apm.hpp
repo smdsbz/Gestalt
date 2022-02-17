@@ -77,13 +77,13 @@ public:
      * @param vec 
      * @param primary if writing to primary set
      */
-    inline void parameterize(const decltype(targets) &vec, bool primary) noexcept
+    inline void parameterize(const vector<target_t> &vec, bool primary) noexcept
     {
         targets = vec;
         is_primary_set = primary;
         sgl[0].length = buf.slots() * sizeof(dataslot);
     }
-    inline WriteAPM &operator()(const decltype(targets) &vec, bool primary) noexcept
+    inline WriteAPM &operator()(const vector<target_t> &vec, bool primary) noexcept
     {
         parameterize(vec, primary);
         return *this;
