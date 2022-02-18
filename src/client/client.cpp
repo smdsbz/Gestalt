@@ -215,6 +215,7 @@ int Client::put(void)
      * is ignored (as this implementation is only intended for performance
      * benchmarking) !
      */
+
     is_search_needed = false;
     if (is_search_needed) {
         // TODO: justify placement - linear search and redirection cache
@@ -255,14 +256,16 @@ int Client::put(void)
     }
 
     /* lock (primary) */
-    {
+    do {
         const auto &prim = vec.at(0);
         if (int r = (*plop)(prim.id, prim.addr, _key, prim.rkey)(); r) {
-            [[unlikely]] if (r == -ECANCELED)
+            [[unlikely]] if (r == -EBADF)
                 [[likely]] return -EDQUOT;
+            if (r == -EINVAL)
+                break;
             return r;
         }
-    }
+    } while (0);
 
     /* write primary (write with lock preserved on the 1st order, cleared on rest) */
     do {

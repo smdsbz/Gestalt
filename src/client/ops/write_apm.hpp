@@ -93,6 +93,16 @@ public:
         return *this;
     }
 
+    /**
+     * 
+     * @param wr 
+     * @param bad_wr 
+     * @param wc 
+     * @return 
+     * * 0 ok
+     * * -EBADR bad work request
+     * * ...
+     */
     int perform(
         const ibv_send_wr *wr,
         ibv_send_wr* &bad_wr, ibv_wc &wc) const noexcept override

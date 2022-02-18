@@ -100,6 +100,11 @@ public:
         if (old.u64 == before.u64)
             [[likely]] return 0;
 
+        BOOST_LOG_TRIVIAL(trace) << std::hex
+            << "ops::Lock before " << before.u64
+            << " old " << old.u64
+            << std::dec;
+
         if (!(old.m.bits & flag_t::valid))
             [[unlikely]] return -EINVAL;
         if (old.m.bits & flag_t::lock)
