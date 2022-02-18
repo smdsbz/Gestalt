@@ -101,6 +101,12 @@ void Client::raw_read(const char *key)
         [[unlikely]] throw std::runtime_error(what);
     }
 
+    is_search_needed = false;
+    if (is_search_needed) {
+        // TODO: justify placement
+        [[unlikely]] throw std::runtime_error("not supported yet");
+    }
+
     /* fetch data from remote */
     {
         const auto &loc = locs[0];
@@ -181,7 +187,6 @@ int Client::put(void)
     }
 
     /**
-     * @note
      * If test during placement justification, which is essentially lock dry-run,
      * failed, could be
      *  1. an invalid slot
@@ -211,8 +216,43 @@ int Client::put(void)
      * benchmarking) !
      */
     is_search_needed = false;
-    if (is_search_needed)
+    if (is_search_needed) {
+        // TODO: justify placement - linear search and redirection cache
         [[unlikely]] throw std::runtime_error("not supported yet");
+    }
+
+    /* split primary set and secondary set */
+
+    /**
+     * Failures can happen when RNIC is dumping data from Write work request to
+     * PMem, then the data will be corrupted and left in an unrecoverable state.
+     * In the worst case scenario, failure happen when all RNIC in a set have
+     * already started dumping but have not yet finished, then the whole set will
+     * be unusable. Which is why we separate replicas in halves, the primary set
+     * and the secondary set respectively, and update them one set at a time, so
+     * the other set will hold either old or updated data, the failed set can
+     * always be recovered. More specifially, for an object which has N replicas,
+     * the object will be floor(N/2)-failure tolerable.
+     */
+
+    vector<WriteOp::target_t> prim_vec, scnd_vec;
+    {
+        /* HACK: If there is only one replica, the only replica is pushed to the
+            secondary set, so we directly write unlocked metadata to it, saving
+            an extra unlock CAS op.
+
+            It should be noted that according to the RDMA specification, Writes
+            flush data in sequential order, and the fact that all our flag bits
+            are crammed in the last byte effectively making updates to them atomic.
+        */
+        const unsigned s = vec.size() / 2;
+        for (unsigned i = 0; i < vec.size(); i++) {
+            if (i < s)
+                prim_vec.push_back(vec.at(i));
+            else
+                scnd_vec.push_back(vec.at(i));
+        }
+    }
 
     /* lock (primary) */
     {
@@ -225,23 +265,29 @@ int Client::put(void)
     }
 
     /* write primary (write with lock preserved on the 1st order, cleared on rest) */
-    {
-        if (int r = (*pwop)(vec, /*primary?*/true)(); r)
+    do {
+        if (prim_vec.empty())
+            break;
+
+        if (int r = (*pwop)(prim_vec, true)(); r)
             [[unlikely]] return r;
-    }
+    } while (0);
 
     /* write secondary (write with lock cleared) */
     {
-        if (int r = (*pwop)(vec, /*primary?*/false)(); r)
+        if (int r = (*pwop)(scnd_vec, false)(); r)
             [[unlikely]] return r;
     }
 
     /* unlock (primary) */
-    {
+    do {
+        if (prim_vec.empty())
+            break;
+
         const auto &prim = vec.at(0);
         if (int r = (*pulop)(prim.id, prim.addr, _key, prim.rkey)(); r)
             [[unlikely]] return r;
-    }
+    } while (0);
 
     return 0;
 }
