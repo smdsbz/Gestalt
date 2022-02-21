@@ -115,7 +115,7 @@ unique_ptr<Server> Server::create(
             throw std::runtime_error("no RNIC");
         }
         rnic_chosen = gestalt::misc::numa::choose_rnic_on_same_numa(
-            dax_path.c_str(), raw_devices);
+            dax_path.filename().c_str(), raw_devices);
         if (!rnic_chosen) {
             BOOST_LOG_TRIVIAL(warning) << "Cannot find a matching RNIC on the "
                 << "same NUMA as the DEVDAX, using the first RNIC listed "
@@ -127,6 +127,9 @@ unique_ptr<Server> Server::create(
     ibvctx.chosen = rnic_chosen;
 
     /* register memory region */
+    BOOST_LOG_TRIVIAL(info) << "Registering PMem " << dax_path
+        << " to RNIC " << ibvctx.chosen->device->name
+        << ", this may take a while ...";
     unique_ptr<ibv_pd, __IbvPdDeleter> pd(ibv_alloc_pd(ibvctx.chosen));
     if (!pd)
         boost_log_errno_throw(ibv_alloc_pd);
@@ -138,6 +141,7 @@ unique_ptr<Server> Server::create(
     ));
     if (!ibvmr)
         boost_log_errno_throw(ibv_reg_mr);
+    BOOST_LOG_TRIVIAL(info) << "Successfully registered memory region!";
 
     /* start RDMA CM */
     rdma_cm_id *raw_listen_id;
@@ -202,6 +206,7 @@ Server::Server(
     BOOST_LOG_TRIVIAL(info) << "cleaning storage, this may take a while ...";
     BOOST_LOG_TRIVIAL(debug) << "storage.capacity() = " << storage.capacity();
     storage.clear();
+    pmem_msync(managed_pmem.buffer, managed_pmem.size);
     BOOST_LOG_TRIVIAL(info) << "Server successfully initialized!";
 }
 

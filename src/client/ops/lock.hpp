@@ -57,7 +57,7 @@ public:
         {
             atomic_t a(khx);
             /* before is unlocked */
-            a.m.bits = flag_t::valid;
+            a.m.bits = static_cast<uint8_t>(flag_t::valid);
             wr[0].wr.atomic.compare_add = a.u64;
             /* after is locked */
             a.m.bits = flag_t::valid | flag_t::lock;
@@ -99,17 +99,18 @@ public:
         if (old.u64 == before.u64)
             [[likely]] return 0;
 
-        BOOST_LOG_TRIVIAL(trace) << std::hex
-            << "ops::Lock before " << before.u64
-            << " old " << old.u64
-            << std::dec;
-
         if (!(old.m.bits & flag_t::valid))
             [[unlikely]] return -EINVAL;
         if (old.m.bits & flag_t::lock)
             [[likely]] return -EBUSY;
         if (old.m.key_crc != before.m.key_crc)
             return -EBADF;
+
+        BOOST_LOG_TRIVIAL(trace) << std::hex
+            << "ops::Lock mismatch and cannot be handled,"
+            << " before " << before.u64
+            << " old " << old.u64
+            << std::dec;
 
         throw std::runtime_error("unreachable");
     }

@@ -5,6 +5,7 @@
 #include <fstream>
 #include <cassert>
 #include <algorithm>
+#include <sstream>
 
 #include <boost/property_tree/ini_parser.hpp>
 #include "common/boost_log_helper.hpp"
@@ -78,9 +79,20 @@ Client::oloc Client::map(const okey &key, bool &need_search)
     oloc ret; ret.reserve(num_replicas);
     for (const auto &sid : nodes) {
         const auto &s = session_pool.pool.at(sid);
-        const uintptr_t start_addr = s.addr + (hx % s.slots) * params::data_seg_length;
-        ret.push_back({sid, start_addr, params::data_seg_length});
+        const uintptr_t start_addr = s.addr + (hx % s.slots) * sizeof(dataslot);
+        ret.push_back({sid, start_addr, sizeof(dataslot)});
     }
+
+#if 0
+    {
+        ostringstream what;
+        what << "calculated mapping for key " << key.c_str() << ", [";
+        for (const auto &l : ret)
+            what << "rloc(id=" << l.id << ", addr=" << l.addr << ", length=" << l.length << "), ";
+        what << "]";
+        BOOST_LOG_TRIVIAL(trace) << what.str();
+    }
+#endif
 
     return ret;
 }
@@ -88,7 +100,7 @@ Client::oloc Client::map(const okey &key, bool &need_search)
 
 /* I/O interface */
 
-void Client::raw_read(const char *key)
+int Client::raw_read(const char *key)
 {
     BOOST_LOG_TRIVIAL(trace) << "Client::raw_read() object \"" << key << "\"";
 
@@ -120,20 +132,20 @@ void Client::raw_read(const char *key)
                 mr.length - loc.addr
             ) :
             loc.length;
-        int r = (*prop) (mr.conn.get(), loc.addr, search_span, mr.rkey) ();
-        if (r) {
-            const auto what = string("RDMA op threw: ") + std::strerror(-r);
-            [[unlikely]] throw std::runtime_error(what);
-        }
+        if (int r = (*prop)(mr.conn.get(), loc.addr, search_span, mr.rkey)(); r)
+            [[unlikely]] return r;
     }
 
     /* validate data on your own */
     read_op->buf.pos = 0;
+
+    return 0;
 }
 
 int Client::get(const char *key)
 {
-    raw_read(key);
+    if (int r = raw_read(key); r)
+        [[unlikely]] return r;
     int v = read_op->buf.validity(key);
     if (v == 0)
         [[likely]] return 0;
@@ -265,10 +277,10 @@ int Client::put(void)
     do {
         const auto &prim = vec.at(0);
         if (int r = (*plop)(prim.id, prim.addr, _key, prim.rkey)(); r) {
-            [[unlikely]] if (r == -EBADF)
+            [[unlikely]] if (r == -EINVAL)
+                [[likely]] break;
+            if (r == -EBADF)
                 [[likely]] return -EDQUOT;
-            if (r == -EINVAL)
-                break;
             return r;
         }
     } while (0);

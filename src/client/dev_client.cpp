@@ -76,10 +76,14 @@ int main(const int argc, const char **argv)
 
         {
             auto &r = client.read_op->buf;
+            const auto actual = reinterpret_cast<const char*>(r.data()->data.get());
             BOOST_LOG_TRIVIAL(info) << "got out this: "
-                << reinterpret_cast<char*>(r.data()->data.get())
-                << ", expecting this: " << testbuf
+                << actual << ", expecting this: " << testbuf
                 << std::endl;
+            if (!strcmp(actual, testbuf))
+                BOOST_LOG_TRIVIAL(info) << "good news! they do match!";
+            else
+                BOOST_LOG_TRIVIAL(error) << "BAD NEWS! they does not match!";
         }
     }
 

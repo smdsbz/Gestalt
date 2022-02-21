@@ -58,6 +58,7 @@ public:
         Base::id = id;
         sgl[0].length = length;
         wr[0].wr.rdma.remote_addr = addr;
+        wr[0].wr.rdma.rkey = rkey;
     }
     inline Read &operator()(
         rdma_cm_id *id,

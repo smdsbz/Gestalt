@@ -110,7 +110,13 @@ protected:
     {
         ibv_send_wr *bad_wr;
         ibv_wc wc;
-        return perform(wr, bad_wr, wc);
+        int r = perform(wr, bad_wr, wc);
+        if (r == -ECANCELED) {
+            [[unlikely]] BOOST_LOG_TRIVIAL(error)
+                << "polled unhealthy work completion: "
+                << ibv_wc_status_str(wc.status);
+        }
+        return r;
     }
 public:
     /**

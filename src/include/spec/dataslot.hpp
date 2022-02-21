@@ -173,15 +173,15 @@ struct [[gnu::packed]] dataslot_meta {
         uint64_t u64;
         struct [[gnu::packed]] p {
             uint32_t key_crc = 0;
-            uint8_t _[3] = {0};
+            uint8_t _[3] = {0, 0, 0};
             uint8_t bits = bits_flag::none;
         public:
             constexpr p() noexcept = default;
         } m;
 
-        a() noexcept : m()
+        a() noexcept : u64(0)
         { }
-        a(uint32_t crc, bits_flag f = bits_flag::valid) noexcept
+        a(uint32_t crc, bits_flag f = bits_flag::valid) noexcept : u64(0)
         {
             m.key_crc = crc;
             m.bits = f;

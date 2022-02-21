@@ -10,7 +10,6 @@
 #include <filesystem>
 #include <unordered_map>
 #include <vector>
-#include <tuple>
 
 #include <rdma/rdma_cma.h>
 #include "common/boost_log_helper.hpp"
@@ -141,7 +140,7 @@ public:
      * @param key 
      * @sa Client::get(const char*)
      */
-    void raw_read(const char *key);
+    int raw_read(const char *key);
     /**
      * perform read on #key
      * @param key 
