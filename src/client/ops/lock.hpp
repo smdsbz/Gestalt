@@ -22,6 +22,9 @@ private:
     ibv_sge sgl[1];
     ibv_send_wr wr[1];
 
+    using flag_t = dataslot::meta_type::bits_flag;
+    using atomic_t = decltype(dataslot::meta_type::atomic);
+
     /* c/dtor */
 public:
     Lock(ibv_pd *pd) : Base(pd)
@@ -52,14 +55,13 @@ public:
         Base::id = id;
         wr[0].wr.atomic.remote_addr = addr + offsetof(dataslot, meta.atomic);
         {
-            /* unlocked state value */
-            uint64_t vu =
-                static_cast<uint64_t>(khx) << 32 |
-                dataslot::meta_type::bits_flag::valid;
-            /* locked state value */
-            uint64_t vl = vu | dataslot::meta_type::bits_flag::lock;
-            wr[0].wr.atomic.compare_add = vu;
-            wr[0].wr.atomic.swap = vl;
+            atomic_t a(khx);
+            /* before is unlocked */
+            a.m.bits = flag_t::valid;
+            wr[0].wr.atomic.compare_add = a.u64;
+            /* after is locked */
+            a.m.bits = flag_t::valid | flag_t::lock;
+            wr[0].wr.atomic.swap = a.u64;
         }
         wr[0].wr.atomic.rkey = rkey;
     }
@@ -92,9 +94,6 @@ public:
         if (int r = Base::perform(wr); r)
             return r;
 
-        using flag_t = dataslot::meta_type::bits_flag;
-        using atomic_t = decltype(dataslot::meta_type::atomic);
-
         const auto &before = *reinterpret_cast<const atomic_t*>(&wr[0].wr.atomic.compare_add);  // expected
         const auto &old = *reinterpret_cast<atomic_t*>(sgl[0].addr);    // remote old
         if (old.u64 == before.u64)
@@ -126,6 +125,9 @@ private:
     ibv_sge sgl[1];
     ibv_send_wr wr[1];
 
+    using flag_t = dataslot::meta_type::bits_flag;
+    using atomic_t = decltype(dataslot::meta_type::atomic);
+
     /* c/dtor */
 public:
     Unlock(ibv_pd *pd) : Base(pd)
@@ -156,14 +158,13 @@ public:
         Base::id = id;
         wr[0].wr.atomic.remote_addr = addr + offsetof(dataslot, meta.atomic);
         {
-            /* unlocked state value */
-            uint64_t vu =
-                static_cast<uint64_t>(khx) << 32 |
-                dataslot::meta_type::bits_flag::valid;
-            /* locked state value */
-            uint64_t vl = vu | dataslot::meta_type::bits_flag::lock;
-            wr[0].wr.atomic.compare_add = vl;
-            wr[0].wr.atomic.swap = vu;
+            atomic_t a(khx);
+            /* before is locked */
+            a.m.bits = flag_t::valid | flag_t::lock;
+            wr[0].wr.atomic.compare_add = a.u64;
+            /* after is unlocked */
+            a.m.bits = flag_t::valid;
+            wr[0].wr.atomic.swap = a.u64;
         }
         wr[0].wr.atomic.rkey = rkey;
     }
@@ -193,9 +194,6 @@ public:
     {
         if (int r = Base::perform(wr); r)
             return r;
-
-        using flag_t = dataslot::meta_type::bits_flag;
-        using atomic_t = decltype(dataslot::meta_type::atomic);
 
         const auto &before = *reinterpret_cast<const atomic_t*>(&wr[0].wr.atomic.compare_add);  // expected
         const auto &old = *reinterpret_cast<atomic_t*>(sgl[0].addr);    // remote old

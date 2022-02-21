@@ -89,7 +89,7 @@ protected:
     {
         if (ibv_post_send(id->qp, const_cast<ibv_send_wr*>(wr), &bad_wr))
             [[unlikely]] return -EBADR;
-        for (unsigned retry = max_poll; retry; --retry) {
+        for (unsigned retry = max_poll; true || retry; --retry) {
             int r;
             [[likely]] r = ibv_poll_cq(id->send_cq, 1, &wc);
             if (!r)

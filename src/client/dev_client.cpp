@@ -4,7 +4,6 @@
  * used for debugging only
  */
 
-#include <iostream>
 #include <filesystem>
 #include <thread>
 
@@ -62,22 +61,24 @@ int main(const int argc, const char **argv)
 
     /* test basic IO */
     char testbuf[] = "逸一时，误一世！";
+    const char testkey[] = "yjsp";
 
     {
-        if (int r = client.put("yjsp", testbuf, sizeof(testbuf)); r) {
+        if (int r = client.put(testkey, testbuf, sizeof(testbuf)); r) {
             errno = -r;
             boost_log_errno_throw(Client::put);
         }
 
-        if (int r = client.get("yjsp"); r) {
+        if (int r = client.get(testkey); r) {
             errno = -r;
             boost_log_errno_throw(Client::get);
         }
 
         {
             auto &r = client.read_op->buf;
-            std::cout << "got out this: "
+            BOOST_LOG_TRIVIAL(info) << "got out this: "
                 << reinterpret_cast<char*>(r.data()->data.get())
+                << ", expecting this: " << testbuf
                 << std::endl;
         }
     }

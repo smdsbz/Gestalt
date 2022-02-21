@@ -140,7 +140,7 @@ public:
 
         for (const auto &t : targets) {
             int r;
-            for (unsigned retry = max_poll; retry; --retry) {
+            for (unsigned retry = max_poll; true || retry; --retry) {
                 [[likely]] r = ibv_poll_cq(t.id->send_cq, 1, &wc);
                 if (!r)
                     [[unlikely]] continue;

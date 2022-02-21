@@ -90,6 +90,8 @@ Client::oloc Client::map(const okey &key, bool &need_search)
 
 void Client::raw_read(const char *key)
 {
+    BOOST_LOG_TRIVIAL(trace) << "Client::raw_read() object \"" << key << "\"";
+
     auto prop = dynamic_cast<ReadOp*>(read_op.get());
     assert(prop);
     /* HACK: avoid further repeated construct, if not optimized */
@@ -148,7 +150,7 @@ int Client::get(const char *key)
         throw std::runtime_error("long value support not implemented yet");
     }
 
-    throw std::runtime_error("unreachable");
+    return v;
 }
 
 int Client::put(const char *k, void *d, size_t dl)
@@ -163,6 +165,10 @@ int Client::put(const char *k, void *d, size_t dl)
 
 int Client::put(void)
 {
+    BOOST_LOG_TRIVIAL(trace) << "Client::put() object \""
+        << write_op->buf.arr[0].key().c_str() << "\" of size "
+        << write_op->buf.size() << "B (" << write_op->buf.slots() << " slots)";
+
     auto plop = dynamic_cast<LockOp*>(lock_op.get());
     auto pulop = dynamic_cast<UnlockOp*>(unlock_op.get());
     auto pwop = dynamic_cast<WriteOp*>(write_op.get());
