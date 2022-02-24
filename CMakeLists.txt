@@ -10,6 +10,11 @@ add_compile_options(
 
 add_subdirectory(src)
 
+add_subdirectory(${CMAKE_SOURCE_DIR}/3rd_party/ycsb_parser ycsb_parser)
+add_subdirectory(${CMAKE_SOURCE_DIR}/3rd_party/ycsb ycsb)
+
+add_subdirectory(benchmark)
+
 add_subdirectory(playground EXCLUDE_FROM_ALL)
 add_subdirectory(microbench EXCLUDE_FROM_ALL)
 

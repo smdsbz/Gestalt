@@ -118,7 +118,7 @@ class Client final : private boost::noncopyable {
 
     /* con/dtors */
 public:
-    Client(const filesystem::path &config_path);
+    Client(const filesystem::path &config_path, unsigned id = 114514);
     /** for now we don't implement HA, cluster map will be static */
     // void refresh_clustermap();
 

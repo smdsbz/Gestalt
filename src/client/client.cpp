@@ -23,8 +23,8 @@ using LockOp = ops::Lock; using UnlockOp = ops::Unlock;
 using WriteOp = ops::WriteAPM;
 
 
-Client::Client(const filesystem::path &config_path) :
-    id(/*TODO: random generate, or allocated by monitor*/114514),
+Client::Client(const filesystem::path &config_path, unsigned _id) :
+    id(_id),
     node_mapper(), ibvctx(), session_pool(),
     abnormal_placements(gestalt::defaults::client_redirection_cache_size)
 {
@@ -202,6 +202,8 @@ int Client::put(void)
     for (const auto &r : locs) {
         const auto &m = session_pool.pool.at(r.id);
         vec.push_back({m.conn.get(), r.addr, m.rkey});
+        BOOST_LOG_TRIVIAL(trace) << "loc addr " << r.addr << " @ "
+            << "[" << m.addr << ", " << m.addr + m.length << ")";
     }
 
     /**

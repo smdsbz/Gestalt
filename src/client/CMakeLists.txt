@@ -14,7 +14,7 @@ target_link_libraries(${TARGET}
         rdmacm ibverbs
         ClusterMap_grpc_proto Session_grpc_proto)
 
-add_executable(dev_client dev_client.cpp)
+add_executable(dev_client EXCLUDE_FROM_ALL dev_client.cpp)
 set_target_properties(dev_client
     PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/)

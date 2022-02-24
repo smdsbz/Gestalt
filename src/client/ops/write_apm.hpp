@@ -49,6 +49,11 @@ private:
     bool is_primary_set;
     vector<target_t> targets;
 
+    string opname() const noexcept override
+    {
+        return "WriteAPM";
+    }
+
     /* c/dtor */
 public:
     WriteAPM(ibv_pd *pd) : Base(pd)

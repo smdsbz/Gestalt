@@ -25,6 +25,11 @@ private:
     using flag_t = dataslot::meta_type::bits_flag;
     using atomic_t = decltype(dataslot::meta_type::atomic);
 
+    string opname() const noexcept override
+    {
+        return "Lock";
+    }
+
     /* c/dtor */
 public:
     Lock(ibv_pd *pd) : Base(pd)
@@ -128,6 +133,11 @@ private:
 
     using flag_t = dataslot::meta_type::bits_flag;
     using atomic_t = decltype(dataslot::meta_type::atomic);
+
+    string opname() const noexcept override
+    {
+        return "Unlock";
+    }
 
     /* c/dtor */
 public:

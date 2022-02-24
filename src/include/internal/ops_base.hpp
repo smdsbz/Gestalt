@@ -34,6 +34,8 @@ public:
      * stores read result or to-be-writen data
      */
     mutable bufferlist<max_op_size> buf;
+private:
+    virtual string opname() const noexcept = 0;
 
 protected:
     struct __IbvMrDeleter {
@@ -82,6 +84,7 @@ protected:
      * * -ETIME waited too long on completion queue
      * * -ECOMM RDMA returned an error state
      * * -ECANCELED RDMA returned error in completion
+     * * -EOVERFLOW polled work completion more than requested
      */
     virtual int perform(
         const ibv_send_wr *wr,
@@ -92,13 +95,15 @@ protected:
         for (unsigned retry = max_poll; true || retry; --retry) {
             int r;
             [[likely]] r = ibv_poll_cq(id->send_cq, 1, &wc);
+            if (r == 1)
+                [[likely]] return 0;
             if (!r)
-                [[unlikely]] continue;
+                [[likely]] continue;
             if (r < 0)
-                [[unlikely]] return -ECOMM;
+                return -ECOMM;
             if (wc.status != IBV_WC_SUCCESS)
-                [[unlikely]] return -ECANCELED;
-            return 0;
+                return -ECANCELED;
+            return -EOVERFLOW;
         }
         return -ETIME;
     }
@@ -113,7 +118,8 @@ protected:
         int r = perform(wr, bad_wr, wc);
         if (r == -ECANCELED) {
             [[unlikely]] BOOST_LOG_TRIVIAL(error)
-                << "polled unhealthy work completion: "
+                << opname()
+                << " polled unhealthy work completion: "
                 << ibv_wc_status_str(wc.status);
         }
         return r;

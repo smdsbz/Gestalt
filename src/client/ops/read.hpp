@@ -22,6 +22,11 @@ private:
     ibv_sge sgl[1];
     ibv_send_wr wr[1];
 
+    string opname() const noexcept override
+    {
+        return "Read";
+    }
+
     /* c/dtor */
 public:
     Read(ibv_pd *pd) : Base(pd)
