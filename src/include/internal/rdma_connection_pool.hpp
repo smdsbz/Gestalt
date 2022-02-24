@@ -51,7 +51,7 @@ class RDMAConnectionPool {
         memory_region(
                 uintptr_t _addr, size_t _len, uint32_t _rkey,
                 decltype(conn) &&_conn) noexcept :
-            addr(_addr), length(_len), slots(length / DATA_SEG_LEN), rkey(_rkey),
+            addr(_addr), length(_len), slots(length / sizeof(dataslot)), rkey(_rkey),
             conn(std::move(_conn))
         { }
         memory_region(memory_region &&tmp) = default;

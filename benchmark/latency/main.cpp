@@ -154,7 +154,7 @@ int main(const int argc, const char **argv)
             but it does not affect performance, so it is actually okay not
             to bother :`) */
         std::strcpy(reinterpret_cast<char*>(buf), d.okey.c_str());
-        BOOST_LOG_TRIVIAL(trace) << "putting " << d.okey;
+        // BOOST_LOG_TRIVIAL(trace) << "putting " << d.okey;
         int r = client.put(d.okey.c_str(), buf, sizeof(buf));
         if (!r) {
             successful_insertions++;
@@ -163,6 +163,7 @@ int main(const int argc, const char **argv)
         if (r == -EDQUOT) {
             BOOST_LOG_TRIVIAL(trace) << "failed inserting key " << d.okey
                 << ", ignored";
+            continue;
         }
         errno = -r;
         boost_log_errno_throw(Client::put);
