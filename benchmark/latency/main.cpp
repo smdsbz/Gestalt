@@ -100,10 +100,8 @@ int main(const int argc, const char **argv)
 
         /* check if need to regen */
         do {
-
             if (ycsb_regen)
                 break;
-
             /* if no previous run yet */
             if (!filesystem::is_regular_file(cur_src_dir / "ycsb_args.tmp")) {
                 ycsb_regen = true;
@@ -145,36 +143,76 @@ int main(const int argc, const char **argv)
     gestalt::Client client(config_path, client_id);
     BOOST_LOG_TRIVIAL(info) << "client successfully setup";
 
-    /* load, insert collision will be ignored */
-    BOOST_LOG_TRIVIAL(info) << "Loading workload into Gestalt ...";
-    size_t successful_insertions = 0;
-    for (const auto &d : ycsb_load) {
-        uint8_t buf[4_K];
-        /* TODO: fill with actual data
-            but it does not affect performance, so it is actually okay not
-            to bother :`) */
-        std::strcpy(reinterpret_cast<char*>(buf), d.okey.c_str());
-        // BOOST_LOG_TRIVIAL(trace) << "putting " << d.okey;
-        int r = client.put(d.okey.c_str(), buf, sizeof(buf));
-        if (!r) {
-            successful_insertions++;
-            continue;
-        }
-        if (r == -EDQUOT) {
-            BOOST_LOG_TRIVIAL(trace) << "failed inserting key " << d.okey
-                << ", ignored";
-            continue;
-        }
-        errno = -r;
-        boost_log_errno_throw(Client::put);
-    }
-    BOOST_LOG_TRIVIAL(info) << "Finished loading workload, loaded "
-        << successful_insertions << " / " << ycsb_load.size()
-        << " (" << 100. * successful_insertions / ycsb_load.size() << "%)";
-
-    /* run */
+    /* load, and heat up client locator cache */
+    /** @note insert collisions will be ignored */
     {
+        BOOST_LOG_TRIVIAL(info) << "Loading workload into Gestalt ...";
+        size_t successful_insertions = 0;
+        for (const auto &d : ycsb_load) {
+            uint8_t buf[4_K];
+            /* TODO: fill with actual data
+                but it does not affect performance, so it is actually okay not
+                to bother, just do something and yisi-yisi :`) */
+            std::strcpy(reinterpret_cast<char*>(buf), d.okey.c_str());
+            // BOOST_LOG_TRIVIAL(trace) << "putting " << d.okey;
+            int r = client.put(d.okey.c_str(), buf, sizeof(buf));
+            if (!r) {
+                successful_insertions++;
+                continue;
+            }
+            if (r == -EDQUOT) {
+                BOOST_LOG_TRIVIAL(trace) << "failed inserting key " << d.okey
+                    << ", ignored";
+                continue;
+            }
+            errno = -r;
+            boost_log_errno_throw(Client::put);
+        }
+        BOOST_LOG_TRIVIAL(info) << "Finished loading workload, loaded "
+            << successful_insertions << " / " << ycsb_load.size()
+            << " (" << 100. * successful_insertions / ycsb_load.size() << "%)";
+    }
 
+    /* run, single threaded */
+    double single_threaded_ycsb_a;
+    {
+        BOOST_LOG_TRIVIAL(info) << "Start running workload - single-threaded YCSB A";
+        const auto start = std::chrono::steady_clock::now();
+
+        for (const auto &d : ycsb_run) {
+            using Op = decltype(d.op);
+            switch (d.op) {
+            case Op::READ: {
+                if (int r = client.get(d.okey.c_str()); r) {
+                    /* key not inserted */
+                    [[unlikely]] if (r == -EINVAL)
+                        [[likely]] break;
+                    BOOST_LOG_TRIVIAL(warning) << "failed to read " << d.okey
+                        << " : " << std::strerror(-r);
+                }
+                break;
+            }
+            case Op::UPDATE: {
+                uint8_t buf[4_K];
+                std::strcpy(reinterpret_cast<char*>(buf), d.okey.c_str());
+                if (int r = client.put(d.okey.c_str(), buf, sizeof(buf)); r) {
+                    [[unlikely]] if (r == -EDQUOT)
+                        [[likely]] break;
+                    BOOST_LOG_TRIVIAL(warning) << "failed to update " << d.okey
+                        << " : " << std::strerror(-r);
+                }
+                break;
+            }
+            default:
+                throw std::runtime_error("unexpected run op");
+            }
+        }
+
+        const auto end = std::chrono::steady_clock::now();
+        const std::chrono::duration<double> interval = end - start;
+        single_threaded_ycsb_a = interval.count() * 1e6 / ycsb_run.size();
+        BOOST_LOG_TRIVIAL(info) << "Finished in " << interval.count() << " s, "
+            << "avg " << single_threaded_ycsb_a << " us";
     }
 
     return EXIT_SUCCESS;

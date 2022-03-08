@@ -53,6 +53,9 @@ DataMapper::DataMapper(Client *_c) : client(_c)
 
 DataMapper::acting_set DataMapper::map(uint32_t base, unsigned r) const
 {
+    /**
+     * @note currently implemented as round-robin
+     */
     acting_set out;
     for (unsigned off = 0; off < server_rank.size() && out.size() < r; ++off) {
         unsigned rank;
@@ -67,7 +70,7 @@ DataMapper::acting_set DataMapper::map(uint32_t base, unsigned r) const
 
 void DataMapper::mark_out(unsigned id)
 {
-    server_map[id].status = server_node::Status::out;
+    server_map.at(id).status = server_node::Status::out;
 }
 
 }   /* namespace gestalt */

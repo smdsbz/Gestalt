@@ -165,16 +165,6 @@ int Client::get(const char *key)
     return v;
 }
 
-int Client::put(const char *k, void *d, size_t dl)
-{
-    auto pwop = dynamic_cast<WriteOp*>(write_op.get());
-    assert(pwop);
-
-    pwop->buf.set(k, d, dl);
-
-    return put();
-}
-
 int Client::put(void)
 {
     BOOST_LOG_TRIVIAL(trace) << "Client::put() object \""
