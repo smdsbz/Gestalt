@@ -91,8 +91,10 @@ int main(const int argc, const char **argv)
          */
         vector<pair<string, string>> ordered_args{
             {"workload", (filesystem::path(YCSB_WORKLOAD_DIR) / "workloada").string()},
-            {"recordcount", to_string(static_cast<int>(1e4))},
-            {"operationcount", to_string(static_cast<int>(1e7))}
+            {"recordcount", to_string(static_cast<int>(1e5))},
+            {"operationcount", to_string(static_cast<int>(1e7))},
+            // {"readproportion", to_string(0)},
+            // {"updateproportion", to_string(1)},
         };
         ostringstream serialized_args;
         for (const auto &a : ordered_args)
@@ -100,13 +102,10 @@ int main(const int argc, const char **argv)
 
         /* check if need to regen */
         do {
+            /* if no previous run yet */
+            ycsb_regen |= !filesystem::is_regular_file(args_path);
             if (ycsb_regen)
                 break;
-            /* if no previous run yet */
-            if (!filesystem::is_regular_file(cur_src_dir / "ycsb_args.tmp")) {
-                ycsb_regen = true;
-                break;
-            }
 
             /* if arg changed */
             {
@@ -145,9 +144,9 @@ int main(const int argc, const char **argv)
 
     /* load, and heat up client locator cache */
     /** @note insert collisions will be ignored */
+    size_t successful_insertions = 0;
     {
         BOOST_LOG_TRIVIAL(info) << "Loading workload into Gestalt ...";
-        size_t successful_insertions = 0;
         for (const auto &d : ycsb_load) {
             uint8_t buf[4_K];
             /* TODO: fill with actual data
@@ -176,7 +175,7 @@ int main(const int argc, const char **argv)
     /* run, single threaded */
     double single_threaded_ycsb_a;
     {
-        BOOST_LOG_TRIVIAL(info) << "Start running workload - single-threaded YCSB A";
+        BOOST_LOG_TRIVIAL(info) << "Start running workload ...";
         const auto start = std::chrono::steady_clock::now();
 
         for (const auto &d : ycsb_run) {
@@ -212,8 +211,12 @@ int main(const int argc, const char **argv)
         const std::chrono::duration<double> interval = end - start;
         single_threaded_ycsb_a = interval.count() * 1e6 / ycsb_run.size();
         BOOST_LOG_TRIVIAL(info) << "Finished in " << interval.count() << " s, "
-            << "avg " << single_threaded_ycsb_a << " us";
+            << "avg lat " << single_threaded_ycsb_a << " us, "
+            << "approx effective avg lat " << single_threaded_ycsb_a * ycsb_load.size() / successful_insertions << " us";
     }
+
+    /* run, multi-threaded */
+    // TODO:
 
     return EXIT_SUCCESS;
 }

@@ -107,6 +107,11 @@ class Client final : private boost::noncopyable {
     using rloc = cluster_physical_addr;
     /** object locator, i.e. set of locators of ranked replica */
     using oloc = vector<rloc>;
+
+    /**
+     * objects that are placed at their calculated location, values of entries are unused
+     */
+    mutable LRUCache<okey, char, gestalt::defaults::client_locator_cache_size> normal_placements;
     /**
      * caches redirected location of object that are not stored at their default
      * calculated placement, i.e. those require linear search on at least one of
@@ -114,7 +119,17 @@ class Client final : private boost::noncopyable {
      * @note currently we treat objects that cannot be placed at their default
      * location as failed insertions, i.e. this cache is currently always empty
      */
-    LRUCache<okey, oloc> abnormal_placements;
+    mutable LRUCache<okey, oloc, gestalt::defaults::client_redirection_cache_size> abnormal_placements;
+    inline void erase_oloc_cache(const okey &key)
+    {
+        normal_placements.erase(key);
+        abnormal_placements.erase(key);
+    }
+public:
+    /**
+     * we store known collisions here, this is only for benchmark
+     */
+    mutable LRUCache<okey, char, static_cast<size_t>(1e4)> collision_set;
 
     /* con/dtors */
 public:
@@ -130,7 +145,22 @@ private:
      * @param[out] need_search do we still need to search for a justified placement
      * @return ordered set of acting replica location
      */
-    oloc map(const okey &key, bool &need_search);
+    oloc map(const okey &key, bool &need_search) const;
+
+    /**
+     * Probe for key around all `oloc`s, and justify them to exactly where the
+     * object is currently located, or available slots where new object can be
+     * inserted. The location will be inserted to locator cache.
+     * @note If Client::map(const okey&, bool&) hinted a search is needed, this
+     * method must be called, otherwise you will be performing a headless overwrite.
+     * @param[in] key object key
+     * @param[in,out] ls calculated locators
+     * @return 
+     * 0 ok, locator can be used
+     * -EDQUOT cannot find key nor empty slots
+     * -EINVAL found empty slots, available for inserts
+     */
+    int probe_and_justify_oloc(const okey &key, oloc &ls);
 
 public:
     unique_ptr<ops::Base> read_op;
@@ -175,6 +205,12 @@ public:
         write_op.get()->buf.set(key, din, dlen);
         return put();
     }
+
+    /**
+     * @note currently we don't implement space allocation (reserve) nor
+     * revokation (remove), for while our benchmark is running, the working set
+     * remains static, that is just how YCSB works.
+     */
 
     /* debug interface */
 public:

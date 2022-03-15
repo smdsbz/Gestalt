@@ -25,8 +25,8 @@ using WriteOp = ops::WriteAPM;
 
 Client::Client(const filesystem::path &config_path, unsigned _id) :
     id(_id),
-    node_mapper(), ibvctx(), session_pool(),
-    abnormal_placements(gestalt::defaults::client_redirection_cache_size)
+    /* the following contexts are filled later in this constructor */
+    node_mapper(), ibvctx(), session_pool()
 {
     {
         ifstream f(config_path);
@@ -65,14 +65,19 @@ Client::Client(const filesystem::path &config_path, unsigned _id) :
 }
 
 
-Client::oloc Client::map(const okey &key, bool &need_search)
+Client::oloc Client::map(const okey &key, bool &need_search) const
 {
     if (abnormal_placements.exist(key)) {
         [[unlikely]] need_search = false;
         return abnormal_placements.get(key);
     }
+    if (normal_placements.exist(key))
+        [[likely]] need_search = false;
+    else {
+        /* not found in both placement caches */
+        need_search = true;
+    }
 
-    need_search = true;
     const auto hx = key.hash();
     const auto nodes = node_mapper.map(hx, num_replicas);
 
@@ -97,6 +102,28 @@ Client::oloc Client::map(const okey &key, bool &need_search)
     return ret;
 }
 
+int Client::probe_and_justify_oloc(const okey &key, oloc &ls)
+{
+    /**
+     * @note Currently we don't implement probing, as we always heat up locator
+     * cache before benchmarking, and the cache is sufficiently large to hold
+     * all locators for any reasonable-sized working object set.
+     * It should be noted that, if run on an imbalanced deployment, lack of
+     * locator justification could lead to headless overwites on secondary
+     * replicas, but still, it does not affect benchmark performance, they all
+     * traverse the same code path.
+     */
+
+    /* if we need to implement probing someday, use read_op, therefore we may
+        save one op when probing for read on a small object */
+
+    if (collision_set.exist(key))
+        return -EDQUOT;
+
+    normal_placements.put(key, '\0');
+    return 0;
+}
+
 
 /* I/O interface */
 
@@ -109,30 +136,26 @@ int Client::raw_read(const char *key)
     /* HACK: avoid further repeated construct, if not optimized */
     const okey _key(key);
     bool is_search_needed;
-    const auto locs = this->map(_key, is_search_needed);
+    auto locs = this->map(_key, is_search_needed);
     if (locs.empty()) {
         const auto what = string("cannot map key ") + key;
         [[unlikely]] throw std::runtime_error(what);
     }
 
-    is_search_needed = false;
     if (is_search_needed) {
-        // TODO: justify placement
-        [[unlikely]] throw std::runtime_error("not supported yet");
+        [[unlikely]] if (int r = probe_and_justify_oloc(_key, locs); r) {
+            [[unlikely]] if (r == -EINVAL || r == -EDQUOT)
+                return -EINVAL;
+            return r;
+        }
+        // TODO: stuff probe read result to read_op, saving a Read op, that is if we had implemented probing
     }
 
     /* fetch data from remote */
     {
         const auto &loc = locs[0];
         const auto &mr = session_pool.pool.at(loc.id);
-        const uint32_t search_span =
-            is_search_needed ?
-            std::min(
-                loc.length + (params::hht_search_length - 1) * sizeof(dataslot),
-                mr.length - loc.addr
-            ) :
-            loc.length;
-        if (int r = (*prop)(mr.conn.get(), loc.addr, search_span, mr.rkey)(); r)
+        if (int r = (*prop)(mr.conn.get(), loc.addr, loc.length, mr.rkey)(); r)
             [[unlikely]] return r;
     }
 
@@ -150,16 +173,20 @@ int Client::get(const char *key)
     if (v == 0)
         [[likely]] return 0;
 
-    if (v == -EINVAL)
+    if (v == -EINVAL) {
+        erase_oloc_cache(key);
         return -EINVAL;
-
-    if (v == -EREMOTE) {
-        // TODO: multi-slot object
-        throw std::runtime_error("long value support not implemented yet");
     }
-    if (v == -EOVERFLOW) {
-        // TODO: segmented read for really large data
-        throw std::runtime_error("long value support not implemented yet");
+
+    /* buffer cannot hold all data */
+    if (v == -EOVERFLOW)
+        return -EOVERFLOW;
+
+    /* multi-slot object, this should be fixed at probing phase, unless it is
+        changed after probing before fetching */
+    if (v == -EREMOTE) {
+        [[unlikely]] erase_oloc_cache(key);
+        return -EREMOTE;
     }
 
     return v;
@@ -167,8 +194,8 @@ int Client::get(const char *key)
 
 int Client::put(void)
 {
-    BOOST_LOG_TRIVIAL(trace) << "Client::put() object \""
-        << write_op->buf.arr[0].key().c_str() << "\" of size "
+    BOOST_LOG_TRIVIAL(trace) << "Client::put() object "
+        << write_op->buf.arr[0].key().c_str() << " of size "
         << write_op->buf.size() << "B (" << write_op->buf.slots() << " slots)";
 
     auto plop = dynamic_cast<LockOp*>(lock_op.get());
@@ -184,17 +211,9 @@ int Client::put(void)
 
     const auto &_key = pwop->buf.data()[0].key();
     bool is_search_needed;
-    const auto locs = this->map(_key, is_search_needed);
+    auto locs = this->map(_key, is_search_needed);
 
     /* justify replica location */
-
-    vector<WriteOp::target_t> vec;  // replica channel vector
-    for (const auto &r : locs) {
-        const auto &m = session_pool.pool.at(r.id);
-        vec.push_back({m.conn.get(), r.addr, m.rkey});
-        BOOST_LOG_TRIVIAL(trace) << "loc addr " << r.addr << " @ "
-            << "[" << m.addr << ", " << m.addr + m.length << ")";
-    }
 
     /**
      * If test during placement justification, which is essentially lock dry-run,
@@ -226,10 +245,18 @@ int Client::put(void)
      * benchmarking) !
      */
 
-    is_search_needed = false;
     if (is_search_needed) {
-        // TODO: justify placement - linear search and redirection cache
-        [[unlikely]] throw std::runtime_error("not supported yet");
+        [[unlikely]] if (int r = probe_and_justify_oloc(_key, locs); r) {
+            [[unlikely]] if (r == -EINVAL) {
+                [[likely]] /* should insert, do nothing */;
+            }
+            else {
+                if (r == -EDQUOT) {
+                    [[likely]] return -EDQUOT;
+                }
+                return r;
+            }
+        }
     }
 
     /* split primary set and secondary set */
@@ -250,34 +277,36 @@ int Client::put(void)
     {
         /* HACK: If there is only one replica, the only replica is pushed to the
             secondary set, so we directly write unlocked metadata to it, saving
-            an extra unlock CAS op.
+            an unlock CAS op.
 
             It should be noted that according to the RDMA specification, Writes
             flush data in sequential order, and the fact that all our flag bits
             are crammed in the last byte effectively making updates to them atomic.
         */
-        const unsigned s = vec.size() / 2;
-        for (unsigned i = 0; i < vec.size(); i++) {
-            if (i < s)
-                prim_vec.push_back(vec.at(i));
-            else
-                scnd_vec.push_back(vec.at(i));
+        const unsigned s = locs.size() / 2;
+        for (unsigned i = 0; i < locs.size(); i++) {
+            const auto &r = locs.at(i);
+            const auto &m = session_pool.pool.at(r.id);
+            (i < s ? prim_vec : scnd_vec)
+                .push_back({m.conn.get(), r.addr, m.rkey});
         }
     }
+    const auto &prim_rep = (prim_vec.empty() ? scnd_vec : prim_vec).at(0);
 
     /* lock (primary) */
     do {
-        const auto &prim = vec.at(0);
-        if (int r = (*plop)(prim.id, prim.addr, _key, prim.rkey)(); r) {
+        if (int r = (*plop)(prim_rep.id, prim_rep.addr, _key, prim_rep.rkey)(); r) {
             [[unlikely]] if (r == -EINVAL)
                 [[likely]] break;
-            if (r == -EBADF)
-                [[likely]] return -EDQUOT;
+            if (r == -EBADF) {
+                [[likely]] collision_set.put(_key, '\0');
+                return -EDQUOT;
+            }
             return r;
         }
     } while (0);
 
-    /* write primary (write with lock preserved on the 1st order, cleared on rest) */
+    /* write primary (write with lock preserved on the 1st rank, cleared on rest) */
     do {
         if (prim_vec.empty())
             break;
@@ -297,8 +326,7 @@ int Client::put(void)
         if (prim_vec.empty())
             break;
 
-        const auto &prim = vec.at(0);
-        if (int r = (*pulop)(prim.id, prim.addr, _key, prim.rkey)(); r)
+        if (int r = (*pulop)(prim_rep.id, prim_rep.addr, _key, prim_rep.rkey)(); r)
             [[unlikely]] return r;
     } while (0);
 
