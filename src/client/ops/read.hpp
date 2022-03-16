@@ -62,6 +62,7 @@ public:
     {
         Base::id = id;
         sgl[0].length = length;
+        buf.working_range = ceil_div(length, params::data_seg_length);
         wr[0].wr.rdma.remote_addr = addr;
         wr[0].wr.rdma.rkey = rkey;
     }

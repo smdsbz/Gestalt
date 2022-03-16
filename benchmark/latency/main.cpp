@@ -6,10 +6,14 @@
 
 #include <filesystem>
 #include <vector>
+#include <unordered_map>
+#include <map>
+#include <random>
 #include <fstream>
 #include <sstream>
 #include <memory>
 #include <thread>
+#include <atomic>
 #include <chrono>
 using namespace std::chrono_literals;
 
@@ -92,9 +96,9 @@ int main(const int argc, const char **argv)
         vector<pair<string, string>> ordered_args{
             {"workload", (filesystem::path(YCSB_WORKLOAD_DIR) / "workloada").string()},
             {"recordcount", to_string(static_cast<int>(1e5))},
-            {"operationcount", to_string(static_cast<int>(1e7))},
-            // {"readproportion", to_string(0)},
-            // {"updateproportion", to_string(1)},
+            {"operationcount", to_string(static_cast<int>(1e6))},
+            {"readproportion", to_string(1)},
+            {"updateproportion", to_string(0)},
         };
         ostringstream serialized_args;
         for (const auto &a : ordered_args)
@@ -172,7 +176,8 @@ int main(const int argc, const char **argv)
             << " (" << 100. * successful_insertions / ycsb_load.size() << "%)";
     }
 
-    /* run, single threaded */
+    /* run, single threaded, for latency test */
+#if 0
     double single_threaded_ycsb_a;
     {
         BOOST_LOG_TRIVIAL(info) << "Start running workload ...";
@@ -214,9 +219,125 @@ int main(const int argc, const char **argv)
             << "avg lat " << single_threaded_ycsb_a << " us, "
             << "approx effective avg lat " << single_threaded_ycsb_a * ycsb_load.size() / successful_insertions << " us";
     }
+#endif
 
-    /* run, multi-threaded */
-    // TODO:
+    /* run, multi-threaded, for bandwidth (single-threaded falls back to latency test) */
+
+    /* generate scrambled YCSB run trace for each thread, minimizing CPU cache
+        miss impact */
+    const vector<unsigned> thread_nr_to_test{1, 4, 16, 64}; // must be in asc order
+    BOOST_LOG_TRIVIAL(info) << "Generating trace for each thread ...";
+    vector<decltype(ycsb_run)> thread_run(thread_nr_to_test.back());
+    {
+        std::random_device rd;
+        std::default_random_engine re(rd());
+        std::uniform_int_distribution<unsigned> dist(0, ycsb_run.size() - 1);
+        for (auto &tt : thread_run) {
+            for (unsigned i = 0; i < ycsb_run.size(); i++)
+                tt.push_back(ycsb_run.at(dist(re)));
+        }
+    }
+    BOOST_LOG_TRIVIAL(info) << "Thread-specific trace generated";
+
+    std::atomic<bool> thread_start_flag;
+    std::atomic<unsigned> thread_ready_count, thread_finished_count;
+
+    const auto thread_test_fn = [&] (const unsigned thread_id) {
+        gestalt::Client client(config_path, client_id + 200 + thread_id);
+        thread_ready_count++;
+        while (!thread_start_flag)
+            [[unlikely]] ;
+
+        for (const auto &d : thread_run[thread_id]) {
+            using Op = decltype(d.op);
+            bool retry = true;
+            while (retry) {
+                retry = false;
+                switch (d.op) {
+                case Op::READ: {
+                    #if 1   // set to 0 will skip validity checking
+                    if (int r = client.get(d.okey.c_str()); r) {
+                        /* key temporarily locked */
+                        [[unlikely]] if (r == -EAGAIN || r == -ECOMM) {
+                            [[unlikely]] retry = true;
+                            break;
+                        }
+                        /* key not inserted */
+                        [[unlikely]] if (r == -EINVAL)
+                            [[likely]] break;
+                        BOOST_LOG_TRIVIAL(warning) << "failed to read " << d.okey
+                            << " : " << std::strerror(-r);
+                    }
+                    #else
+                    client.raw_read(d.okey.c_str());
+                    #endif
+                    break;
+                }
+                case Op::UPDATE: {
+                    uint8_t buf[4_K];
+                    std::strcpy(reinterpret_cast<char*>(buf), d.okey.c_str());
+                    if (int r = client.put(d.okey.c_str(), buf, sizeof(buf)); r) {
+                        /* key temporarily locked */
+                        [[unlikely]] if (r == -EBUSY) {
+                            [[unlikely]] retry = true;
+                            break;
+                        }
+                        /* key not inserted */
+                        [[unlikely]] if (r == -EDQUOT)
+                            [[likely]] break;
+                        BOOST_LOG_TRIVIAL(warning) << "failed to update " << d.okey
+                            << " : " << std::strerror(-r);
+                    }
+                    break;
+                }
+                default:
+                    throw std::runtime_error("unexpected run op");
+                }
+            }
+        }
+
+        thread_finished_count++;
+    };
+
+    map<unsigned, std::chrono::duration<double>> thread_test_metrics;
+    for (const auto &tnr : thread_nr_to_test) {
+        BOOST_LOG_TRIVIAL(info) << "Running test for " << tnr << "-threads";
+
+        thread_start_flag = false;
+        thread_ready_count = thread_finished_count = 0;
+        vector<std::jthread> pool;
+        for (unsigned i = 0; i < tnr; i++)
+            pool.push_back(std::jthread(thread_test_fn, i));
+        while (thread_ready_count != tnr) ;
+
+        BOOST_LOG_TRIVIAL(info) << "Starting test ...";
+        const auto start = std::chrono::steady_clock::now();
+        thread_start_flag = true;
+        while (thread_finished_count != tnr) ;
+        const auto end = std::chrono::steady_clock::now();
+
+        thread_test_metrics[tnr] = end - start;
+        BOOST_LOG_TRIVIAL(info) << "Finished test for " << tnr << "-threads, "
+            << thread_test_metrics[tnr].count() << "s has passed";
+    }
+
+    BOOST_LOG_TRIVIAL(info) << std::left << std::fixed;
+    BOOST_LOG_TRIVIAL(info)
+        << std::setw(8) << "thrd"
+        << std::setw(16) << "avg lat (us)"
+        << std::setw(16) << "Miops"
+        << std::setw(16) << "bw (GiB/s)";
+    for (const auto &[tnr, dur] : thread_test_metrics) {
+        const double lat_us = 1e6 * dur.count() / ycsb_run.size();
+        const double miops = ycsb_run.size() * tnr / 1e6 / dur.count();
+        const double bw_GiB = ycsb_run.size() * 4_K * tnr / 1_G / dur.count();
+        BOOST_LOG_TRIVIAL(info)
+            << std::setw(8) << tnr
+            << std::setw(16) << lat_us
+            << std::setw(16) << miops
+            << std::setw(16) << bw_GiB;
+    }
+    BOOST_LOG_TRIVIAL(info) << std::right;
 
     return EXIT_SUCCESS;
 }

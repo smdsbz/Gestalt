@@ -47,6 +47,12 @@ struct bufferlist {
      * starting position (slot) of valid value, -1 for no valid data.
      */
     mutable ssize_t pos;
+    /**
+     * @private
+     * (for read op only) amount of data (in slots) comming from remote,
+     * -1 for no data yet
+     */
+    mutable ssize_t working_range = nr_slots;
 
     /* c/dtor */
 
@@ -93,12 +99,16 @@ struct bufferlist {
 
     /**
      * Check bufferlist data validity
+     * @note must set working_range before calling
      * @param key Key of object to find. We fetch data in bulk, there could be
      *      multiple valid slot, we need to know which to look for.
      * @return
      * * 0 - bufferlist all valid and ready to be read, #pos will be set appropriately
+     * * -EAGAIN - is wanted data, but currently locked
+     * * -ECOMM - is wanted key, but checksum mismatch, could be slot dirty or
+     *      overwriting
      * * -EINVAL - if invalid, no initialized data of key
-     * * -EOVERFLOW - wanted value larger than that of this instance can hold
+     * * -EOVERFLOW - wanted value larger than that of this bufferlist instance can hold
      * * -EREMOTE - part of data is still remote
      *      * size() will be positive if we read the first half of a large value,
      *          need to fetch again with a larger range.
@@ -113,21 +123,28 @@ struct bufferlist {
      */
     int validity(const dataslot::key_type &key) const noexcept
     {
-        if (pos < 0)
+        if (pos < 0 || working_range < 0)
             [[unlikely]] return -EINVAL;
 
         /* check the first block, i.e. header.
             if header does not match, start anew */
-        if (arr[pos].validity() || arr[pos].key() != key) {
-            [[unlikely]] if (pos >= params::hht_search_length)
+        do {
+            const auto v = arr[pos].validity();
+            if (!v)
+                [[likely]] break;
+            // assert(v);
+            if (arr[pos].key() == key)
+                [[likely]] return v;
+            // assert(v && arr[pos].key != key);
+            if (pos >= std::min(static_cast<size_t>(working_range), params::hht_search_length))
                 [[unlikely]] return -EINVAL;
             pos++;
             return validity(key);
-        }
+        } while (0);
 
-        size_t len = size();
+        const size_t len = size();
 
-        /* we read the later half of a large value, the actual value size is
+        /* we read from the middle of a large value, the actual value size is
             somewhere ahead */
         if (len == 0)
             return -EREMOTE;
@@ -137,12 +154,14 @@ struct bufferlist {
         if (len < DATA_SEG_LEN)
             [[likely]] return 0;
 
+        /* the buffer can't hold entire value anyway */
         if (pos * DATA_SEG_LEN + len > max_size())
             [[unlikely]] return -EOVERFLOW;
 
+        /* check the entire value */
         for (size_t i = 1, k = ceil_div(len, DATA_SEG_LEN); i < k; i++) {
             const auto &d = arr[pos + i];
-            if (d.validity() && d.key() == key)
+            if (d.validity() || d.key() != key)
                 [[unlikely]] return -EREMOTE;
         }
         return 0;
