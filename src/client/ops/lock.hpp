@@ -210,6 +210,11 @@ public:
         const auto &old = *reinterpret_cast<atomic_t*>(sgl[0].addr);    // remote old
         if (old.u64 == before.u64)
             [[likely]] return 0;
+
+        BOOST_LOG_TRIVIAL(trace) << "failed to unlock, " << std::hex
+            << "expect " << before.u64
+            << " read " << old.u64 ;
+
         return -ECANCELED;
     }
     using Base::operator();

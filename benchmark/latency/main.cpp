@@ -83,22 +83,23 @@ int main(const int argc, const char **argv)
     /* prepare YCSB data */
     smdsbz::ycsb_parser::trace ycsb_load, ycsb_run;
     ycsb_load.reserve(1e4);
-    ycsb_run.reserve(1e7);
+    ycsb_run.reserve(1e6);
     {
         namespace yp = smdsbz::ycsb_parser;
         const auto args_path = cur_src_dir / "ycsb_args.tmp";
 
         /**
-         * Tune #ordered_args in source, the program will automatically re-run
-         * YCSB if it detects a matching workload has not been generated (detect
-         * by checking dumped args).
+         * CMBK: Tune #ordered_args in source, the program will automatically
+         * re-run YCSB if it detects a matching workload has not been generated
+         * (detect by checking dumped args).
          */
         vector<pair<string, string>> ordered_args{
             {"workload", (filesystem::path(YCSB_WORKLOAD_DIR) / "workloada").string()},
             {"recordcount", to_string(static_cast<int>(1e5))},
             {"operationcount", to_string(static_cast<int>(1e6))},
-            {"readproportion", to_string(1)},
-            {"updateproportion", to_string(0)},
+            {"requestdistribution", "uniform"},
+            {"readproportion", to_string(0)},
+            {"updateproportion", to_string(1)},
         };
         ostringstream serialized_args;
         for (const auto &a : ordered_args)
@@ -153,7 +154,7 @@ int main(const int argc, const char **argv)
         BOOST_LOG_TRIVIAL(info) << "Loading workload into Gestalt ...";
         for (const auto &d : ycsb_load) {
             uint8_t buf[4_K];
-            /* TODO: fill with actual data
+            /* HACK: we don't fill with actual data!
                 but it does not affect performance, so it is actually okay not
                 to bother, just do something and yisi-yisi :`) */
             std::strcpy(reinterpret_cast<char*>(buf), d.okey.c_str());
@@ -225,7 +226,7 @@ int main(const int argc, const char **argv)
 
     /* generate scrambled YCSB run trace for each thread, minimizing CPU cache
         miss impact */
-    const vector<unsigned> thread_nr_to_test{1, 4, 16, 64}; // must be in asc order
+    const vector<unsigned> thread_nr_to_test{1, 4, 8, 16, 32, 48, 64};  // must be in asc order
     BOOST_LOG_TRIVIAL(info) << "Generating trace for each thread ...";
     vector<decltype(ycsb_run)> thread_run(thread_nr_to_test.back());
     {
@@ -233,6 +234,7 @@ int main(const int argc, const char **argv)
         std::default_random_engine re(rd());
         std::uniform_int_distribution<unsigned> dist(0, ycsb_run.size() - 1);
         for (auto &tt : thread_run) {
+            tt.reserve(1e6);
             for (unsigned i = 0; i < ycsb_run.size(); i++)
                 tt.push_back(ycsb_run.at(dist(re)));
         }
@@ -241,6 +243,7 @@ int main(const int argc, const char **argv)
 
     std::atomic<bool> thread_start_flag;
     std::atomic<unsigned> thread_ready_count, thread_finished_count;
+    // std::atomic<unsigned long long> total_retries;
 
     const auto thread_test_fn = [&] (const unsigned thread_id) {
         gestalt::Client client(config_path, client_id + 200 + thread_id);
@@ -260,6 +263,7 @@ int main(const int argc, const char **argv)
                         /* key temporarily locked */
                         [[unlikely]] if (r == -EAGAIN || r == -ECOMM) {
                             [[unlikely]] retry = true;
+                            // total_retries++;
                             break;
                         }
                         /* key not inserted */
@@ -280,6 +284,7 @@ int main(const int argc, const char **argv)
                         /* key temporarily locked */
                         [[unlikely]] if (r == -EBUSY) {
                             [[unlikely]] retry = true;
+                            // total_retries++;
                             break;
                         }
                         /* key not inserted */
@@ -305,6 +310,8 @@ int main(const int argc, const char **argv)
 
         thread_start_flag = false;
         thread_ready_count = thread_finished_count = 0;
+        // total_retries = 0;
+
         vector<std::jthread> pool;
         for (unsigned i = 0; i < tnr; i++)
             pool.push_back(std::jthread(thread_test_fn, i));
@@ -319,7 +326,9 @@ int main(const int argc, const char **argv)
         thread_test_metrics[tnr] = end - start;
         BOOST_LOG_TRIVIAL(info) << "Finished test for " << tnr << "-threads, "
             << thread_test_metrics[tnr].count() << "s has passed";
+        // BOOST_LOG_TRIVIAL(info) << "total retires " << total_retries.load();
     }
+
 
     BOOST_LOG_TRIVIAL(info) << std::left << std::fixed;
     BOOST_LOG_TRIVIAL(info)

@@ -114,7 +114,7 @@ public:
     {
         assert(wr == this->wr);
 
-        /* emit requests*/
+        /* emit requests */
 
         if (is_primary_set) {
             auto &header_flag = buf.arr[0].meta.atomic.m.bits;
@@ -128,7 +128,12 @@ public:
             if (ibv_post_send(prim.id->qp, this->wr, &bad_wr))
                 [[unlikely]] return -EBADR;
 
-            header_flag &= ~dataslot::meta_type::bits_flag::lock;
+            // DEBUG: ibv_post_send() is asynchronous, RNIC may read unset bits
+            /**
+             * HACK: lock bit on replica doesn't actually do anything, leave it
+             * locked.
+             */
+            // header_flag &= ~dataslot::meta_type::bits_flag::lock;
         }
 
         for (unsigned r = is_primary_set ? 1 : 0; r < targets.size(); r++) {

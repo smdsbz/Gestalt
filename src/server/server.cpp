@@ -161,7 +161,7 @@ unique_ptr<Server> Server::create(
         }
         defer([&] { rdma_freeaddrinfo(info); });
         ibv_qp_init_attr init_attr{
-            .cap = { .max_send_wr = 512, .max_recv_wr = 512,
+            .cap = { .max_send_wr = 1024, .max_recv_wr = 1024,
                         .max_send_sge = 16, .max_recv_sge = 16,
                         .max_inline_data = 512 },
             .qp_type = IBV_QPT_RC,
