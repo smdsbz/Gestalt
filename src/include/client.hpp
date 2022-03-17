@@ -201,7 +201,7 @@ public:
      * @return 
      * @sa Client::put(void)
      */
-    inline int put(const char *key, void *din, size_t dlen) {
+    inline int put(const char *key, const void *din, size_t dlen) {
         write_op.get()->buf.set(key, din, dlen);
         return put();
     }

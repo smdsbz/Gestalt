@@ -261,18 +261,6 @@ int Client::put(void)
 
     /* split primary set and secondary set */
 
-    /**
-     * Failures can happen when RNIC is dumping data from Write work request to
-     * PMem, then the data will be corrupted and left in an unrecoverable state.
-     * In the worst case scenario, failure happen when all RNIC in a set have
-     * already started dumping but have not yet finished, then the whole set will
-     * be unusable. Which is why we separate replicas in halves, the primary set
-     * and the secondary set respectively, and update them one set at a time, so
-     * the other set will hold either old or updated data, the failed set can
-     * always be recovered. More specifially, for an object which has N replicas,
-     * the object will be floor(N/2)-failure tolerable.
-     */
-
     vector<WriteOp::target_t> prim_vec, scnd_vec;
     {
         /* HACK: If there is only one replica, the only replica is pushed to the
@@ -300,6 +288,7 @@ int Client::put(void)
                 [[likely]] break;
             if (r == -EBADF) {
                 [[likely]] collision_set.put(_key, '\0');
+                erase_oloc_cache(_key);
                 return -EDQUOT;
             }
             return r;

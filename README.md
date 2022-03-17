@@ -6,6 +6,8 @@ Gestalt
 How to run
 ----------
 
+### Single client
+
 1.  Install dependencies
 
     ```console
@@ -29,6 +31,15 @@ How to run
     # build/bin/gestalt_server --addr <RNIC_IP> --dax-dev /dev/daxX.X
     ```
 
+    And wait for them to report they're ready
+
+    ```text
+    [info]    Server up and running!
+    ```
+
+    Depending on your PMem size and CPU processing power, this may take from
+    seconds to a minute.
+
     > PMem namespace should be in DEVDAX mode.
 
 6.  On client machine
@@ -37,7 +48,21 @@ How to run
     # build/bin/benchmark_latency   # bw and iops included, didn't bother renaming it
     ```
 
-Sometimes the benchmark client may fail due to mismatch in RDMA work request
-commit / consume speed when thread count is high, which highly depends on hardware
-processing power of your specific CPU / RNIC combination, try restart the cluster
-and re-run.
+Sometimes the benchmark client may fail, which shows as `-EBADR`, due to mismatch
+in RDMA work request commit / consume speed when thread count is high, which highly
+depends on hardware processing power of your specific CPU / RNIC combination,
+try restart the cluster and re-run.
+
+
+### Multiple clients
+
+1.  Setup NTP, preferably with IB interface, so that clients are peers with each
+    other
+
+    The distributed benchmark requires sync-ed time for workloads to start
+    simultaneously, at least roughly.
+
+2.  Setup NFS among client machines
+
+    The distributed benchmark client on each server should be run from the same
+    directory, which will be used to publish workload trace among clients.

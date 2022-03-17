@@ -262,7 +262,7 @@ struct bufferlist {
      * @param din source data buffer
      * @param dlen length of data
      */
-    void set(const dataslot::key_type &key, void *din, size_t dlen)
+    void set(const dataslot::key_type &key, const void *din, size_t dlen)
     {
 #ifdef DEBUG_BUFFERLIST
 #ifndef NDEBUG

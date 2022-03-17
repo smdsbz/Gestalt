@@ -97,9 +97,9 @@ int main(const int argc, const char **argv)
             {"workload", (filesystem::path(YCSB_WORKLOAD_DIR) / "workloada").string()},
             {"recordcount", to_string(static_cast<int>(1e5))},
             {"operationcount", to_string(static_cast<int>(1e6))},
-            {"requestdistribution", "uniform"},
-            {"readproportion", to_string(0)},
-            {"updateproportion", to_string(1)},
+            // {"requestdistribution", "uniform"},
+            // {"readproportion", to_string(0)},
+            // {"updateproportion", to_string(1)},
         };
         ostringstream serialized_args;
         for (const auto &a : ordered_args)
@@ -247,7 +247,24 @@ int main(const int argc, const char **argv)
 
     const auto thread_test_fn = [&] (const unsigned thread_id) {
         gestalt::Client client(config_path, client_id + 200 + thread_id);
+        /* DEBUG: causing RNIC to throw bad work request more frequently when
+            thread count is high, don't know why.
+            Not heating up cache introduces less than 0.1us increase to final
+            average latency metric (spread among 1e6 ops), don't bother. */
+        #if 0
+        /* heat up client locator cache */
+        for (const auto &d : ycsb_load) {
+            if (int r = client.get(d.okey.c_str()); r) {
+                [[unlikely]] if (r == -EINVAL)
+                    continue;
+                BOOST_LOG_TRIVIAL(warning) << "failed to read " << d.okey
+                    << " : " << std::strerror(-r);
+            }
+        }
+        std::this_thread::sleep_for(2s);
+        #endif
         thread_ready_count++;
+
         while (!thread_start_flag)
             [[unlikely]] ;
 
