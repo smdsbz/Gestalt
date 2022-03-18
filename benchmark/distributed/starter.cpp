@@ -177,7 +177,6 @@ int main(const int argc, const char **argv)
     /** @note insert collisions will be ignored */
     size_t successful_insertions = 0;
     {
-        gestalt::Client client(config_path, client_id);
         BOOST_LOG_TRIVIAL(info) << "Loading workload into Gestalt ...";
         for (const auto &d : ycsb_load) {
             uint8_t buf[4_K];
@@ -186,7 +185,7 @@ int main(const int argc, const char **argv)
                 to bother, just do something and yisi-yisi :`) */
             std::strcpy(reinterpret_cast<char*>(buf), d.okey.c_str());
             // BOOST_LOG_TRIVIAL(trace) << "putting " << d.okey;
-            int r = client.put(d.okey.c_str(), buf, sizeof(buf));
+            int r = coord_client.put(d.okey.c_str(), buf, sizeof(buf));
             if (!r) {
                 successful_insertions++;
                 continue;

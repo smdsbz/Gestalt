@@ -303,7 +303,7 @@ struct bufferlist {
             arr[isrc].reset(key, din, DATA_SEG_LEN);
             arr[isrc].meta.length = 0;
             isrc++;
-            din = reinterpret_cast<uint8_t*>(din) + DATA_SEG_LEN;
+            din = reinterpret_cast<const uint8_t*>(din) + DATA_SEG_LEN;
             dlen -= DATA_SEG_LEN;
         }
         assert(dlen <= DATA_SEG_LEN);

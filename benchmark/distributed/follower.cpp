@@ -16,6 +16,7 @@
 #include <atomic>
 #include <chrono>
 using namespace std::chrono_literals;
+#include <numeric>
 
 #include "common/boost_log_helper.hpp"
 #include <boost/program_options.hpp>
@@ -75,15 +76,14 @@ int main(const int argc, const char **argv)
 
     /* wait for run trace ready */
 
-    gestalt::Client admin_client(config_path, client_id + 114514);
+    gestalt::Client coord_client(config_path, client_id + 1919810);
 
     {
         int64_t ts = 0;
         while (!ts) {
-            if (int r = admin_client.get("load_ready_at"); r) {
-                continue;
-            }
-            ts = *reinterpret_cast<int64_t*>(admin_client.read_op->buf.data());
+            if (int r = coord_client.get("load_ready_at"); r)
+                [[unlikely]] continue;
+            ts = *reinterpret_cast<int64_t*>(coord_client.read_op->buf.data());
         }
         BOOST_LOG_TRIVIAL(info) << "load_ready_at " << ts;
         while (std::chrono::duration_cast<std::chrono::microseconds>(
@@ -103,8 +103,9 @@ int main(const int argc, const char **argv)
 
     /* generate scrambled YCSB run trace for each thread, minimizing CPU cache
         miss impact */
-    constexpr unsigned thread_nr_to_test = 64;
-    BOOST_LOG_TRIVIAL(info) << "Generating trace for each thread ...";
+    constexpr unsigned thread_nr_to_test = 16;
+    BOOST_LOG_TRIVIAL(info) << "Generating trace for each thread (total "
+        << thread_nr_to_test << " threads for this client instance) ...";
     vector<decltype(ycsb_run)> thread_run(thread_nr_to_test);
     {
         std::random_device rd;
@@ -118,22 +119,26 @@ int main(const int argc, const char **argv)
     }
     BOOST_LOG_TRIVIAL(info) << "Thread-specific trace generated";
 
-    std::atomic<bool> start_flag = false, stop_flag = false;
+    bool start_flag = false, stop_flag = false;
 
-    const auto thread_test_fn = [&] (const unsigned thread_id, uint64_t &completed_ops) {
-        gestalt::Client client(config_path, client_id + 200 + thread_id);
+    vector<unsigned long long> thread_completed_ops(thread_nr_to_test, 0);
+    const auto thread_test_fn = [&] (const unsigned thread_id) {
+        auto &completed_ops = thread_completed_ops.at(thread_id);
+        gestalt::Client client(config_path, client_id * 1000 + thread_id);
 
         while (!start_flag)
             [[unlikely]] ;
 
         for (const auto &d : thread_run[thread_id]) {
             using Op = decltype(d.op);
+            if (stop_flag)
+                break;
+
             bool retry = true;
-            while (retry) {
+            while (retry && !stop_flag) {
                 retry = false;
                 switch (d.op) {
                 case Op::READ: {
-                    #if 1   // set to 0 will skip validity checking
                     if (int r = client.get(d.okey.c_str()); r) {
                         /* key temporarily locked */
                         [[unlikely]] if (r == -EAGAIN || r == -ECOMM) {
@@ -147,9 +152,8 @@ int main(const int argc, const char **argv)
                         BOOST_LOG_TRIVIAL(warning) << "failed to read " << d.okey
                             << " : " << std::strerror(-r);
                     }
-                    #else
-                    client.raw_read(d.okey.c_str());
-                    #endif
+                    else
+                        completed_ops++;
                     break;
                 }
                 case Op::UPDATE: {
@@ -168,6 +172,8 @@ int main(const int argc, const char **argv)
                         BOOST_LOG_TRIVIAL(warning) << "failed to update " << d.okey
                             << " : " << std::strerror(-r);
                     }
+                    else
+                        completed_ops++;
                     break;
                 }
                 default:
@@ -176,52 +182,54 @@ int main(const int argc, const char **argv)
             }
         }
 
-        thread_finished_count++;
+        if (!stop_flag)
+            throw std::runtime_error("trace ended prematurely");
     };
 
-    map<unsigned, std::chrono::duration<double>> thread_test_metrics;
-    for (const auto &tnr : thread_nr_to_test) {
-        BOOST_LOG_TRIVIAL(info) << "Running test for " << tnr << "-threads";
+    vector<std::jthread> test_thread_pool;
+    for (unsigned i = 0; i < thread_nr_to_test; i++)
+        test_thread_pool.push_back(std::jthread(thread_test_fn, i));
 
-        thread_start_flag = false;
-        thread_ready_count = thread_finished_count = 0;
-        // total_retries = 0;
+    {
+        int64_t start_ts, end_ts;
+        if (int r = coord_client.get("start_at"); r) {
+            errno = -r;
+            boost_log_errno_throw(coord_client.get start_at);
+        }
+        start_ts = *reinterpret_cast<int64_t*>(coord_client.read_op->buf.data());
+        BOOST_LOG_TRIVIAL(info) << "start_at " << start_ts;
+        if (int r = coord_client.get("end_at"); r) {
+            errno = -r;
+            boost_log_errno_throw(coord_client.get end_at);
+        }
+        end_ts = *reinterpret_cast<int64_t*>(coord_client.read_op->buf.data());
+        BOOST_LOG_TRIVIAL(info) << "end_ts " << end_ts;
 
-        vector<std::jthread> pool;
-        for (unsigned i = 0; i < tnr; i++)
-            pool.push_back(std::jthread(thread_test_fn, i));
-        while (thread_ready_count != tnr) ;
+        bool has_waited = false;
+        while (std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                .count() < start_ts)
+            [[unlikely]] has_waited = true;
+        start_flag = true;
+        if (!has_waited) {
+            stop_flag = true;
+            throw std::runtime_error("thread initialization took to long");
+        }
+        BOOST_LOG_TRIVIAL(info) << "Test started";
 
-        BOOST_LOG_TRIVIAL(info) << "Starting test ...";
-        const auto start = std::chrono::steady_clock::now();
-        thread_start_flag = true;
-        while (thread_finished_count != tnr) ;
-        const auto end = std::chrono::steady_clock::now();
-
-        thread_test_metrics[tnr] = end - start;
-        BOOST_LOG_TRIVIAL(info) << "Finished test for " << tnr << "-threads, "
-            << thread_test_metrics[tnr].count() << "s has passed";
-        // BOOST_LOG_TRIVIAL(info) << "total retires " << total_retries.load();
+        while (std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                .count() < end_ts)
+            [[unlikely]];
+        stop_flag = true;
+        BOOST_LOG_TRIVIAL(info) << "Test should now be terminated";
     }
 
+    std::this_thread::sleep_for(2s);
 
-    BOOST_LOG_TRIVIAL(info) << std::left << std::fixed;
-    BOOST_LOG_TRIVIAL(info)
-        << std::setw(8) << "thrd"
-        << std::setw(16) << "avg lat (us)"
-        << std::setw(16) << "Miops"
-        << std::setw(16) << "bw (GiB/s)";
-    for (const auto &[tnr, dur] : thread_test_metrics) {
-        const double lat_us = 1e6 * dur.count() / ycsb_run.size();
-        const double miops = ycsb_run.size() * tnr / 1e6 / dur.count();
-        const double bw_GiB = ycsb_run.size() * 4_K * tnr / 1_G / dur.count();
-        BOOST_LOG_TRIVIAL(info)
-            << std::setw(8) << tnr
-            << std::setw(16) << lat_us
-            << std::setw(16) << miops
-            << std::setw(16) << bw_GiB;
-    }
-    BOOST_LOG_TRIVIAL(info) << std::right;
+    BOOST_LOG_TRIVIAL(info) << "total_completed_ops "
+        << std::accumulate(thread_completed_ops.begin(), thread_completed_ops.end(), 0ull);
+
 
     return EXIT_SUCCESS;
 }
