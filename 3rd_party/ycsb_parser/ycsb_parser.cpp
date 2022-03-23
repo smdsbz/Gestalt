@@ -62,10 +62,17 @@ void run(
     }
     // BOOST_LOG_TRIVIAL(debug) << "cli: " << cli.str();
 
-    cli << " > " << dumppath;
+    /* generate to local temporary file, copy it to wanted location later with
+        a single system call, so it works better with NFS */
+    const auto tmppath = filesystem::path("/tmp/smdsbz-ycsb-parser-run.tmp");
+    cli << " > " << tmppath;
 
     /* run command */
     std::system(cli.str().c_str());
+
+    /* move to wanted location, with one system call */
+    filesystem::copy_file(tmppath, dumppath, filesystem::copy_options::overwrite_existing);
+    filesystem::remove(tmppath);
 }
 }   /* anonymous-namespace */
 

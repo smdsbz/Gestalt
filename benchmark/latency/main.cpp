@@ -34,8 +34,8 @@ int main(const int argc, const char **argv)
         filesystem::absolute(argv[0]).parent_path().parent_path().parent_path();
     filesystem::path cur_src_dir = src_dir / "benchmark" / "latency";
     filesystem::path config_path;
-    filesystem::path ycsb_load_path = src_dir / "workload" / "load.ycsb";
-    filesystem::path ycsb_run_path = src_dir / "workload" / "run.ycsb";
+    filesystem::path ycsb_load_path = cur_src_dir / "workload" / "load.ycsb";
+    filesystem::path ycsb_run_path = cur_src_dir / "workload" / "run.ycsb";
     bool ycsb_regen = false;
     string log_level;
     unsigned client_id = 114;
@@ -226,7 +226,7 @@ int main(const int argc, const char **argv)
 
     /* generate scrambled YCSB run trace for each thread, minimizing CPU cache
         miss impact */
-    const vector<unsigned> thread_nr_to_test{1, 4, 8, 16, 32, 48, 64};  // must be in asc order
+    const vector<unsigned> thread_nr_to_test{1, 4, 8, 16, 32, 48/*, 64*/};  // must be in asc order
     BOOST_LOG_TRIVIAL(info) << "Generating trace for each thread ...";
     vector<decltype(ycsb_run)> thread_run(thread_nr_to_test.back());
     {

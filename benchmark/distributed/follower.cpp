@@ -35,8 +35,8 @@ int main(const int argc, const char **argv)
         filesystem::absolute(argv[0]).parent_path().parent_path().parent_path();
     filesystem::path cur_src_dir = src_dir / "benchmark" / "distributed";
     filesystem::path config_path;
-    filesystem::path ycsb_load_path = src_dir / "workload" / "load.ycsb";
-    filesystem::path ycsb_run_path = src_dir / "workload" / "run.ycsb";
+    filesystem::path ycsb_load_path = cur_src_dir / "workload" / "load.ycsb";
+    filesystem::path ycsb_run_path = cur_src_dir / "workload" / "run.ycsb";
     string log_level;
     unsigned client_id;
 
@@ -79,6 +79,8 @@ int main(const int argc, const char **argv)
     gestalt::Client coord_client(config_path, client_id + 1919810);
 
     {
+        BOOST_LOG_TRIVIAL(info) << "Waiting for starter ...";
+
         int64_t ts = 0;
         while (!ts) {
             if (int r = coord_client.get("load_ready_at"); r)
@@ -119,7 +121,7 @@ int main(const int argc, const char **argv)
     }
     BOOST_LOG_TRIVIAL(info) << "Thread-specific trace generated";
 
-    bool start_flag = false, stop_flag = false;
+    volatile bool start_flag = false, stop_flag = false;
 
     vector<unsigned long long> thread_completed_ops(thread_nr_to_test, 0);
     const auto thread_test_fn = [&] (const unsigned thread_id) {

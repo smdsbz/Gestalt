@@ -34,8 +34,8 @@ int main(const int argc, const char **argv)
         filesystem::absolute(argv[0]).parent_path().parent_path().parent_path();
     filesystem::path cur_src_dir = src_dir / "benchmark" / "distributed";
     filesystem::path config_path;
-    filesystem::path ycsb_load_path = src_dir / "workload" / "load.ycsb";
-    filesystem::path ycsb_run_path = src_dir / "workload" / "run.ycsb";
+    filesystem::path ycsb_load_path = cur_src_dir / "workload" / "load.ycsb";
+    filesystem::path ycsb_run_path = cur_src_dir / "workload" / "run.ycsb";
     bool ycsb_regen = false;
     string log_level;
     unsigned client_id = 114514;
@@ -96,10 +96,10 @@ int main(const int argc, const char **argv)
         vector<pair<string, string>> ordered_args{
             {"workload", (filesystem::path(YCSB_WORKLOAD_DIR) / "workloada").string()},
             {"recordcount", to_string(static_cast<int>(1e5))},
-            {"operationcount", to_string(static_cast<int>(2e6))},
-            // {"requestdistribution", "uniform"},
-            // {"readproportion", to_string(0)},
-            // {"updateproportion", to_string(1)},
+            {"operationcount", to_string(static_cast<int>(3e6))},
+            {"requestdistribution", "uniform"},
+            {"readproportion", to_string(0)},
+            {"updateproportion", to_string(1)},
         };
         ostringstream serialized_args;
         for (const auto &a : ordered_args)
@@ -145,7 +145,7 @@ int main(const int argc, const char **argv)
 
     gestalt::Client coord_client(config_path, client_id);
     /* wait a while for YCSB trace update to be published via NFS */
-    const auto load_ready_at = std::chrono::system_clock::now() + 2s;
+    const auto load_ready_at = std::chrono::system_clock::now() + 5s;
     {
         const auto ts =
             std::chrono::duration_cast<std::chrono::microseconds>(
@@ -209,7 +209,7 @@ int main(const int argc, const char **argv)
         initialize client connection */
     const auto start_at = std::chrono::system_clock::now() + 35s;
     /* run for fixed duration, calculate metrics by dividing with reported completed operations */
-    const auto test_duration = 20s;
+    const auto test_duration = 10s;
     const auto end_at = start_at + test_duration;
     {
         const auto start_ts =
