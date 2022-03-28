@@ -67,6 +67,10 @@ try restart the cluster and re-run.
     The distributed benchmark client on each server should be run from the same
     directory, which will be used to publish workload trace among clients.
 
+    > You may want to disable NFS caching for updated traces to be observed in-time.
+    > Mount with `cto,noac,lookupcache=none` options
+    > ([ref](https://stackoverflow.com/questions/35026752/howto-force-refresh-nfs-cache-when-checking-newly-created-file/35162336#35162336)).
+
 3.  Start servers
 
     ```console
