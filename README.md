@@ -48,21 +48,37 @@ How to run
     # build/bin/benchmark_latency   # bw and iops included, didn't bother renaming it
     ```
 
-Sometimes the benchmark client may fail, which shows as `-EBADR`, due to mismatch
-in RDMA work request commit / consume speed when thread count is high, which highly
+Sometimes the benchmark client may fail and report `-EBADR`, due to mismatch in
+RDMA work request commit / consume speed when thread count is high, which highly
 depends on hardware processing power of your specific CPU / RNIC combination,
 try restart the cluster and re-run.
 
 
 ### Multiple clients
 
-1.  Setup NTP, preferably with IB interface, so that clients are peers with each
+1.  Set up NTP, preferably over IB interface, so that clients are peers with each
     other
 
     The distributed benchmark requires sync-ed time for workloads to start
     simultaneously, at least roughly.
 
-2.  Setup NFS among client machines
+2.  Set up NFS among client machines
 
     The distributed benchmark client on each server should be run from the same
     directory, which will be used to publish workload trace among clients.
+
+3.  Start benchmark clients
+
+    ```console
+    # build/bin/benchmark_dist_follower --id <CLIENT_ID>
+    ```
+
+    Supply unique client ID to each benchmark clients, starting from 2.
+
+4.  Set off
+
+    ```console
+    # build/bin/benchmark_dist_starter
+    ```
+
+    Any node will do.
