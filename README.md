@@ -67,6 +67,14 @@ try restart the cluster and re-run.
     The distributed benchmark client on each server should be run from the same
     directory, which will be used to publish workload trace among clients.
 
+3.  Start servers
+
+    ```console
+    # build/bin/gestalt_server --addr <RNIC_IP> --dax-dev /dev/daxX.X
+    ```
+
+    And wait for ready.
+
 3.  Start benchmark clients
 
     ```console
