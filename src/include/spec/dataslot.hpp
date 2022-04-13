@@ -164,6 +164,7 @@ struct [[gnu::packed]] dataslot_meta {
     uint32_t length;
     uint32_t data_crc;
 
+    /* HACK: don't mind the assignment in a byte, atomic anyway */
     enum bits_flag : uint8_t {
         none    = 0,
         lock    = 0b00000001,
@@ -173,7 +174,12 @@ struct [[gnu::packed]] dataslot_meta {
         uint64_t u64;
         struct [[gnu::packed]] p {
             uint32_t key_crc = 0;
-            uint8_t _[3] = {0, 0, 0};
+            /**
+             * number of trailing slots if the entry is multi-slot
+             * NOTE: currently always 0, since multi-slot is not implemented
+             */
+            uint16_t nr_slots = 0;
+            uint8_t _ = 0;
             uint8_t bits = bits_flag::none;
         public:
             constexpr p() noexcept = default;

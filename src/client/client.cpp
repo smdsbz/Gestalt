@@ -131,7 +131,7 @@ int Client::raw_read(const char *key)
 {
     BOOST_LOG_TRIVIAL(trace) << "Client::raw_read() object \"" << key << "\"";
 
-    auto prop = dynamic_cast<ReadOp*>(read_op.get());
+    const auto prop = dynamic_cast<ReadOp*>(read_op.get());
     assert(prop);
     /* HACK: avoid further repeated construct, if not optimized */
     const okey _key(key);
@@ -198,9 +198,9 @@ int Client::put(void)
         << write_op->buf.arr[0].key().c_str() << " of size "
         << write_op->buf.size() << "B (" << write_op->buf.slots() << " slots)";
 
-    auto plop = dynamic_cast<LockOp*>(lock_op.get());
-    auto pulop = dynamic_cast<UnlockOp*>(unlock_op.get());
-    auto pwop = dynamic_cast<WriteOp*>(write_op.get());
+    const auto plop = dynamic_cast<LockOp*>(lock_op.get());
+    const auto pulop = dynamic_cast<UnlockOp*>(unlock_op.get());
+    const auto pwop = dynamic_cast<WriteOp*>(write_op.get());
     assert(plop && pulop && pwop);
 
     /**
@@ -225,12 +225,14 @@ int Client::put(void)
      *  2. key (fingerprint) does not match
      *      a) cluster shifted
      *      b) data elsewhere in linear search range
-     *      b) collision on create, bucket near full
-     *  3. (valid and key match, but) object locked
+     *      c) collision on create, bucket near full
+     *  3. slot number mismatch
+     *      a) data slots layout changed, i.e. resized
+     *  4. (valid and key match, but) object locked
      *      a) write locked, try again later
      *
      * Cluster shift is prevented at bucket level, that is, once RDMA connections
-     * are initialized, we make sure the data placement within a bucket remains
+     * are initialized, we make sure the memory pool layout of a bucket remains
      * static.
      *
      * Moreover, in the current implementation, linear search is not implemented,
@@ -259,27 +261,14 @@ int Client::put(void)
         }
     }
 
-    /* split primary set and secondary set */
+    /* initialize replica vector */
 
-    vector<WriteOp::target_t> prim_vec, scnd_vec;
-    {
-        /* HACK: If there is only one replica, the only replica is pushed to the
-            secondary set, so we directly write unlocked metadata to it, saving
-            an unlock CAS op.
-
-            It should be noted that according to the RDMA specification, Writes
-            flush data in sequential order, and the fact that all our flag bits
-            are crammed in the last byte effectively making updates to them atomic.
-        */
-        const unsigned s = locs.size() / 2;
-        for (unsigned i = 0; i < locs.size(); i++) {
-            const auto &r = locs.at(i);
-            const auto &m = session_pool.pool.at(r.id);
-            (i < s ? prim_vec : scnd_vec)
-                .push_back({m.conn.get(), r.addr, m.rkey});
-        }
+    vector<WriteOp::target_t> repvec;
+    for (const auto &r : locs) {
+        const auto &m = session_pool.pool.at(r.id);
+        repvec.push_back({m.conn.get(), r.addr, m.rkey});
     }
-    const auto &prim_rep = (prim_vec.empty() ? scnd_vec : prim_vec).at(0);
+    const auto &prim_rep = repvec.at(0);
 
     /* lock (primary) */
     do {
@@ -295,24 +284,18 @@ int Client::put(void)
         }
     } while (0);
 
-    /* write primary (write with lock preserved on the 1st rank, cleared on rest) */
-    do {
-        if (prim_vec.empty())
-            break;
-
-        if (int r = (*pwop)(prim_vec, true)(); r)
-            [[unlikely]] return r;
-    } while (0);
-
-    /* write secondary (write with lock cleared) */
+    /* write replicas
+        HACK: we ignore lock status on replicas, write whatever comes handy as
+        long as it is consistent */
+    /* NOTE: unlock step skipped for non-replicated buckets */
     {
-        if (int r = (*pwop)(scnd_vec, false)(); r)
+        if (int r = (*pwop)(repvec, repvec.size() != 1)(); r)
             [[unlikely]] return r;
     }
 
     /* unlock (primary) */
     do {
-        if (prim_vec.empty())
+        if (repvec.size() == 1)
             break;
 
         if (int r = (*pulop)(prim_rep.id, prim_rep.addr, _key, prim_rep.rkey)(); r)
