@@ -12,6 +12,7 @@
 
 #include "client.hpp"
 #include "./ops/all.hpp"
+#include "optim.hpp"
 
 
 namespace gestalt {
@@ -54,14 +55,21 @@ Client::Client(const filesystem::path &config_path, unsigned _id) :
             boost_log_errno_throw(ibv_alloc_pd);
     }
 
+    /* [opt::batched_poll] get shared cq */
+    if (optimization::batched_poll) {
+        ibvscq.reset(ibv_create_cq(ibvctx.chosen, 64, NULL, NULL, 0));
+        if (!ibvscq)
+            boost_log_errno_throw(ibv_create_cq);
+    }
+
     session_pool = RDMAConnectionPool(this);
     BOOST_LOG_TRIVIAL(debug) << "RDMAConnectionPool initialized";
 
     /* initialize structured RDMA ops */
-    read_op.reset(new ReadOp(ibvpd.get()));
-    lock_op.reset(new LockOp(ibvpd.get()));
-    unlock_op.reset(new UnlockOp(ibvpd.get()));
-    write_op.reset(new WriteOp(ibvpd.get()));
+    read_op.reset(new ReadOp(ibvpd.get(), ibvscq.get()));
+    lock_op.reset(new LockOp(ibvpd.get(), ibvscq.get()));
+    unlock_op.reset(new UnlockOp(ibvpd.get(), ibvscq.get()));
+    write_op.reset(new WriteOp(ibvpd.get(), ibvscq.get()));
 }
 
 
@@ -283,6 +291,7 @@ int Client::put(void)
             return r;
         }
     } while (0);
+    BOOST_LOG_TRIVIAL(trace) << "data slot " << _key.c_str() << " locked";
 
     /* write replicas
         HACK: we ignore lock status on replicas, write whatever comes handy as
@@ -292,6 +301,7 @@ int Client::put(void)
         if (int r = (*pwop)(repvec, repvec.size() != 1)(); r)
             [[unlikely]] return r;
     }
+    BOOST_LOG_TRIVIAL(trace) << "data slot " << _key.c_str() << " overwriten";
 
     /* unlock (primary) */
     do {
@@ -301,6 +311,7 @@ int Client::put(void)
         if (int r = (*pulop)(prim_rep.id, prim_rep.addr, _key, prim_rep.rkey)(); r)
             [[unlikely]] return r;
     } while (0);
+    BOOST_LOG_TRIVIAL(trace) << "data slot " << _key.c_str() << " unlocked";
 
     return 0;
 }

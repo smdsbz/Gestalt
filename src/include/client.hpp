@@ -80,6 +80,18 @@ class Client final : private boost::noncopyable {
         }
     };
     unique_ptr<ibv_pd, __IbvPdDeleter> ibvpd;
+    struct __IbvCqDeleter {
+        inline void operator()(ibv_cq *cq)
+        {
+            if (ibv_destroy_cq(cq))
+                boost_log_errno_throw(ibv_destroy_cq);
+        }
+    };
+    /**
+     * shared RDMA Completion Queue
+     * @sa gestalt::optimization::batched_poll
+     */
+    unique_ptr<ibv_cq, __IbvCqDeleter> ibvscq;
     /** pooled RDMA connection */
     RDMAConnectionPool session_pool;
     friend class RDMAConnectionPool;

@@ -233,7 +233,8 @@ public:
     }
     inline void invalidate() noexcept
     {
-        atomic.m.bits = bits_flag::none;
+        // atomic.m.bits = bits_flag::none;
+        atomic.u64 = 0;
         key.invalidate();
     }
 

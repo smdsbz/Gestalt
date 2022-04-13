@@ -98,8 +98,8 @@ int main(const int argc, const char **argv)
             {"recordcount", to_string(static_cast<int>(1e5))},
             {"operationcount", to_string(static_cast<int>(1e6))},
             // {"requestdistribution", "uniform"},
-            // {"readproportion", to_string(0)},
-            // {"updateproportion", to_string(1)},
+            {"readproportion", to_string(0)},
+            {"updateproportion", to_string(1)},
         };
         ostringstream serialized_args;
         for (const auto &a : ordered_args)
@@ -226,7 +226,7 @@ int main(const int argc, const char **argv)
 
     /* generate scrambled YCSB run trace for each thread, minimizing CPU cache
         miss impact */
-    const vector<unsigned> thread_nr_to_test{1, 4, 8, 16, 32, 48/*, 64*/};  // must be in asc order
+    const vector<unsigned> thread_nr_to_test{1, 4, 8, 16, 32/*, 48, 64*/};  // must be in asc order
     BOOST_LOG_TRIVIAL(info) << "Generating trace for each thread ...";
     vector<decltype(ycsb_run)> thread_run(thread_nr_to_test.back());
     {

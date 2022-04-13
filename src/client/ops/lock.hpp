@@ -32,7 +32,7 @@ private:
 
     /* c/dtor */
 public:
-    Lock(ibv_pd *pd) : Base(pd)
+    Lock(ibv_pd *pd, ibv_cq *scq) : Base(pd, scq)
     {
         sgl[0].addr = reinterpret_cast<uintptr_t>(buf.data());
         sgl[0].length = 8;  // which ever value is okay, as atomic is always 64b
@@ -141,7 +141,7 @@ private:
 
     /* c/dtor */
 public:
-    Unlock(ibv_pd *pd) : Base(pd)
+    Unlock(ibv_pd *pd, ibv_cq *scq) : Base(pd, scq)
     {
         sgl[0].addr = reinterpret_cast<uintptr_t>(buf.data());
         sgl[0].length = 8;  // which ever value is okay, as atomic is always 64b

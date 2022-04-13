@@ -23,6 +23,7 @@
 #include "client.hpp"
 #include "internal/data_mapper.hpp"
 #include "common/defer.hpp"
+#include "optim.hpp"
 
 
 namespace gestalt {
@@ -71,6 +72,7 @@ RDMAConnectionPool::RDMAConnectionPool(Client *_c) : client(_c)
                 boost_log_errno_throw(rdma_getaddrinfo);
             defer([&] { rdma_freeaddrinfo(addrinfo); });
             ibv_qp_init_attr init_attr{
+                .send_cq = optimization::batched_poll ? client->ibvscq.get() : NULL,
                 .cap = { .max_send_wr = 16, .max_recv_wr = 16,
                             .max_send_sge = 16, .max_recv_sge = 16,
                             .max_inline_data = 512 },

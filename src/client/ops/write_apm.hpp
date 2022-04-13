@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "internal/ops_base.hpp"
+#include "optim.hpp"
 
 
 namespace gestalt {
@@ -38,6 +39,12 @@ public:
             id(_id), addr(_addr), rkey(_rkey)
         { }
     };
+
+    /**
+     * ranks of successfully writes
+     */
+    mutable vector<unsigned> success_polls;
+
 private:
     ibv_sge sgl[2];
     mutable ibv_send_wr wr[2];
@@ -56,7 +63,7 @@ private:
 
     /* c/dtor */
 public:
-    WriteAPM(ibv_pd *pd) : Base(pd)
+    WriteAPM(ibv_pd *pd, ibv_cq *scq) : Base(pd, scq)
     {
         /* Write */
         sgl[0].addr = reinterpret_cast<uintptr_t>(buf.data());
@@ -123,15 +130,15 @@ public:
             const auto &prim = targets.at(0);
             this->wr[0].wr.rdma.remote_addr = prim.addr;
             this->wr[0].wr.rdma.rkey = prim.rkey;
+            this->wr[1].wr_id = 0;
             this->wr[1].wr.rdma.remote_addr = prim.addr;
             this->wr[1].wr.rdma.rkey = prim.rkey;
             if (ibv_post_send(prim.id->qp, this->wr, &bad_wr))
                 [[unlikely]] return -EBADR;
 
-            // DEBUG: ibv_post_send() is asynchronous, RNIC may read unset bits
             /**
-             * HACK: lock bit on replica doesn't actually do anything, leave it
-             * locked.
+             * HACK: lock bit on secondaries doesn't actually do anything, leave
+             * it locked.
              */
             // header_flag &= ~dataslot::meta_type::bits_flag::lock;
         }
@@ -140,6 +147,7 @@ public:
             const auto &t = targets.at(r);
             this->wr[0].wr.rdma.remote_addr = t.addr;
             this->wr[0].wr.rdma.rkey = t.rkey;
+            this->wr[1].wr_id = r;
             this->wr[1].wr.rdma.remote_addr = t.addr;
             this->wr[1].wr.rdma.rkey = t.rkey;
             if (ibv_post_send(t.id->qp, this->wr, &bad_wr))
@@ -148,20 +156,50 @@ public:
 
         /* poll from all channels */
 
-        for (const auto &t : targets) {
-            int r;
-            for (unsigned retry = max_poll; true || retry; --retry) {
-                [[likely]] r = ibv_poll_cq(t.id->send_cq, 1, &wc);
-                if (!r)
+        if constexpr (optimization::batched_poll) {
+            /* fake success to deligate */
+            wc.status = IBV_WC_SUCCESS;
+
+            success_polls.clear();
+            success_polls.reserve(targets.size());
+
+            ibv_wc wcbuf[8];
+            unsigned remain = targets.size();
+            for (unsigned retry = max_poll; remain && (true || retry); --retry) {
+                int c;
+                [[likely]] c = ibv_poll_cq(scq, remain, wcbuf);
+                remain -= c;
+                if (!c)
                     [[unlikely]] continue;
-                if (r < 0)
+                if (c < 0)
                     [[unlikely]] return -ECOMM;
-                if (wc.status != IBV_WC_SUCCESS)
-                    [[unlikely]] return -ECANCELED;
-                break;
+                for (unsigned cc = 0; cc < c; cc++) {
+                    if (wcbuf[cc].status != IBV_WC_SUCCESS) {
+                        [[unlikely]] std::memcpy(&wc, &wcbuf[cc], sizeof(wc));
+                        return -ECANCELED;
+                    }
+                    success_polls.push_back(wcbuf[cc].wr_id);
+                }
             }
-            if (!r)
+            if (remain)
                 [[unlikely]] return -ETIME;
+        }
+        else {
+            for (const auto &t : targets) {
+                int r;
+                for (unsigned retry = max_poll; true || retry; --retry) {
+                    [[likely]] r = ibv_poll_cq(t.id->send_cq, 1, &wc);
+                    if (!r)
+                        [[unlikely]] continue;
+                    if (r < 0)
+                        [[unlikely]] return -ECOMM;
+                    if (wc.status != IBV_WC_SUCCESS)
+                        [[unlikely]] return -ECANCELED;
+                    break;
+                }
+                if (!r)
+                    [[unlikely]] return -ETIME;
+            }
         }
 
         return 0;

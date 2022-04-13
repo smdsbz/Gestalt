@@ -14,6 +14,7 @@
 
 #include "../spec/bufferlist.hpp"
 #include "../spec/params.hpp"
+#include "optim.hpp"
 
 
 namespace gestalt {
@@ -51,10 +52,20 @@ protected:
     /* common parameters */
 
     rdma_cm_id *id;
+    /**
+     * shared completion queue
+     * @sa gestalt::optimization::batched_poll
+     */
+    ibv_cq *scq;
 
     /* c/dtor */
 public:
-    Base(ibv_pd *pd)
+    /**
+     * @param pd 
+     * @param scq shared completion queue, if used
+     * @sa gestalt::optimization::batched_poll
+     */
+    Base(ibv_pd *pd, ibv_cq *scq_) : scq(scq_)
     {
         /* get #buf ready for RDMA */
         ibv_mr *raw_mr = ibv_reg_mr(
@@ -64,6 +75,12 @@ public:
         if (!raw_mr)
             boost_log_errno_throw(ibv_reg_mr);
         mr.reset(raw_mr);
+
+        /* sanity check for scq */
+        if (optimization::batched_poll && !scq) {
+            errno = -EINVAL;
+            boost_log_errno_throw(ops::Base);
+        }
     }
 
     /* interface */
@@ -94,7 +111,12 @@ protected:
             [[unlikely]] return -EBADR;
         for (unsigned retry = max_poll; true || retry; --retry) {
             int r;
-            [[likely]] r = ibv_poll_cq(id->send_cq, 1, &wc);
+            [[likely]] if constexpr (optimization::batched_poll) {
+                r = ibv_poll_cq(scq, 1, &wc);
+            }
+            else {
+                r = ibv_poll_cq(id->send_cq, 1, &wc);
+            }
             if (r == 1)
                 [[likely]] return 0;
             if (!r)
