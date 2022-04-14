@@ -6,6 +6,7 @@
 #include <cassert>
 #include <algorithm>
 #include <sstream>
+#include <thread>
 
 #include <boost/property_tree/ini_parser.hpp>
 #include "common/boost_log_helper.hpp"
@@ -132,6 +133,19 @@ int Client::probe_and_justify_oloc(const okey &key, oloc &ls)
     return 0;
 }
 
+constexpr decltype(0us) retry_holdoff_vec[] = {0us, 2us, 3us, 3us, 5us, 7us};
+constexpr unsigned retry_holdoff_vec_len = sizeof(retry_holdoff_vec)
+    / sizeof(std::remove_all_extents_t<decltype(retry_holdoff_vec)>);
+void Client::maybe_holdoff_retry() const noexcept
+{
+    /* do not holdoff if not eager */
+    if ((std::chrono::steady_clock::now() - last_retry_tp).count()
+            > params::eager_retry_threshold_ns)
+        [[unlikely]] return;
+
+    std::this_thread::sleep_for(retry_holdoff_vec[rand() % retry_holdoff_vec_len]);
+}
+
 
 /* I/O interface */
 
@@ -175,6 +189,9 @@ int Client::raw_read(const char *key)
 
 int Client::get(const char *key)
 {
+    if constexpr (optimization::retry_holdoff)
+        maybe_holdoff_retry();
+
     if (int r = raw_read(key); r)
         [[unlikely]] return r;
     int v = read_op->buf.validity(key);
@@ -197,14 +214,22 @@ int Client::get(const char *key)
         return -EREMOTE;
     }
 
+    if constexpr (optimization::retry_holdoff) {
+        if (v == -EAGAIN || v == -ECOMM)
+            last_retry_tp = std::chrono::steady_clock::now();
+    }
+
     return v;
 }
 
 int Client::put(void)
 {
-    BOOST_LOG_TRIVIAL(trace) << "Client::put() object "
-        << write_op->buf.arr[0].key().c_str() << " of size "
+    BOOST_LOG_TRIVIAL(trace) << "Client::put() object \""
+        << write_op->buf.arr[0].key().c_str() << "\" of size "
         << write_op->buf.size() << "B (" << write_op->buf.slots() << " slots)";
+
+    if constexpr (optimization::retry_holdoff)
+        maybe_holdoff_retry();
 
     const auto plop = dynamic_cast<LockOp*>(lock_op.get());
     const auto pulop = dynamic_cast<UnlockOp*>(unlock_op.get());
@@ -283,6 +308,12 @@ int Client::put(void)
         if (int r = (*plop)(prim_rep.id, prim_rep.addr, _key, prim_rep.rkey)(); r) {
             [[unlikely]] if (r == -EINVAL)
                 [[likely]] break;
+            if constexpr (optimization::retry_holdoff) {
+                if (r == -EBUSY) {
+                    [[likely]] last_retry_tp = std::chrono::steady_clock::now();
+                    return r;
+                }
+            }
             if (r == -EBADF) {
                 [[likely]] collision_set.put(_key, '\0');
                 erase_oloc_cache(_key);

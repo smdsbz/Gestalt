@@ -226,7 +226,7 @@ int main(const int argc, const char **argv)
 
     /* generate scrambled YCSB run trace for each thread, minimizing CPU cache
         miss impact */
-    const vector<unsigned> thread_nr_to_test{1, 4, 8, 16, 32/*, 48, 64*/};  // must be in asc order
+    const vector<unsigned> thread_nr_to_test{1, 4, 8, 16, 32, 48/*, 64*/};  // must be in asc order
     BOOST_LOG_TRIVIAL(info) << "Generating trace for each thread ...";
     vector<decltype(ycsb_run)> thread_run(thread_nr_to_test.back());
     {

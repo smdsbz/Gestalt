@@ -174,6 +174,13 @@ private:
      */
     int probe_and_justify_oloc(const okey &key, oloc &ls);
 
+    /**
+     * timepoint of last I/O expecting retry, indication of contention
+     * @sa gestalt::optimization::retry_holdoff
+     */
+    decltype(std::chrono::steady_clock::now()) last_retry_tp;
+    void maybe_holdoff_retry() const noexcept;
+
 public:
     unique_ptr<ops::Base> read_op;
     /**
