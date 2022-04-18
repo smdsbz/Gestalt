@@ -170,11 +170,18 @@ int main(const int argc, const char **argv)
         BOOST_LOG_TRIVIAL(info) << "successfully inserted " << total_inserted
             << " (" << 100. * total_inserted / trace.size() << "%)";
 
-        size_t abs_dist = 0;
-        for (const auto &e : hht)
-            abs_dist += std::abs(hht.access_distance(e.key()));
+        size_t cum_dist = 0;
+        unsigned deadcenter = 0;
+        for (const auto &e : hht) {
+            const auto dist = std::abs(hht.access_distance(e.key()));
+            if (!dist)
+                deadcenter++;
+            cum_dist += std::abs(dist);
+        }
         BOOST_LOG_TRIVIAL(info) << "abs access distance avg: "
-            << 1. * abs_dist / TESTSET_SIZE;
+            << 1. * cum_dist / TESTSET_SIZE;
+        BOOST_LOG_TRIVIAL(info) << 1. * deadcenter / TESTSET_SIZE * 100
+            << "% of data are placed exactly at their hashed location";
     }
 
     return 0;
